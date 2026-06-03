@@ -32,12 +32,30 @@ class CustomResponse(Response):
 
 def init_module():
     """ Initializes the Flask App. """
-    app = Flask(__name__)
+    dirpath = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(dirpath)
+    view_dir = os.path.join(project_root, 'view')
+
+    app = Flask(__name__, static_folder=view_dir, static_url_path='')
     app.response_class = CustomResponse
     return app
 
 
 APP = init_module()
+
+
+@APP.route('/', methods=['GET'])
+def index():
+    """ Serves the dashboard HTML file. """
+    try:
+        dirpath = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(dirpath)
+        html_path = os.path.join(project_root, 'view', 'dashboard.html')
+        with open(html_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return content, 200, {'Content-Type': 'text/html; charset=utf-8'}
+    except Exception as e:
+        return 'Dashboard HTML not found or error loading: {}'.format(str(e)), 500
 
 
 def get_shards():
@@ -233,3 +251,12 @@ def router_truncate():
     if success:
         return {'message': 'DB cluster has been truncated successfully.'}, 200
     return {'error': 'Failed to truncate one or more shards', 'details': errors}, 400
+
+
+@APP.after_request
+def add_cors_headers(response):
+    """ Allow cross-origin requests for dashboard integration. """
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS'
+    return response

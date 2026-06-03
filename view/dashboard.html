@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PupDB Visual Dashboard Platform</title>
+    <!-- Nhúng Font chữ hiện đại Outfit từ Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Liên kết tới CSS tách biệt -->
+    <link rel="stylesheet" href="style.css">
+    <!-- Liên kết tới JavaScript tách biệt -->
+    <script src="script.js" defer></script>
+</head>
+<body>
+
+    <!-- Navigator Bar -->
+    <nav class="navbar">
+        <div class="nav-brand"><span></span> PupDB Visual Platform</div>
+        <div class="nav-links">
+            <button class="nav-btn active" id="btn-tab-single" onclick="switchTab('single')"> Đơn Node (Centralized)</button>
+            <button class="nav-btn" id="btn-tab-cluster" onclick="switchTab('cluster')"> Cụm Phân Tán (Cluster)</button>
+        </div>
+    </nav>
+
+    <div class="container">
+
+        <!-- ==================== TAB 1: SINGLE NODE ==================== -->
+        <div class="tab-content active" id="tab-single">
+            <div class="grid-half">
+                <!-- Left panel: Form Single -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-title"> Playground Đơn Node</span>
+                        <div>
+                            <span class="status-dot" id="single-status-dot"></span>
+                            <span style="font-size: 0.8rem; font-weight: 600;" id="single-status-text">OFFLINE</span>
+                        </div>
+                    </div>
+                    <p class="panel-desc">Tương tác trực tiếp với máy chủ đơn Node thông qua các REST HTTP API.</p>
+
+                    <!-- Set -->
+                    <div class="form-group">
+                        <label>Lưu Cặp Dữ Liệu (Set)</label>
+                        <input type="text" id="single-set-key" placeholder="Nhập Khóa (key)...">
+                        <input type="text" id="single-set-val" placeholder="Nhập Giá trị (value)..." style="margin-top: 0.4rem;">
+                        <button class="btn btn-primary" onclick="singleSet()" style="margin-top: 0.5rem; align-self: flex-start;">
+                             Lưu dữ liệu
+                        </button>
+                    </div>
+
+                    <!-- Get -->
+                    <div class="form-group" style="margin-top: 0.5rem;">
+                        <label>Truy vấn Khóa (Get)</label>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="text" id="single-get-key" placeholder="Nhập khóa cần truy vấn...">
+                            <button class="btn btn-accent" onclick="singleGet()"> Tìm kiếm</button>
+                        </div>
+                        <div class="visualizer-log" id="single-query-result" style="margin-top: 0.5rem; color: var(--text-muted); font-style: italic;">
+                            Kết quả truy vấn sẽ hiển thị ở đây...
+                        </div>
+                    </div>
+
+                    <!-- Danger Zone -->
+                    <div style="margin-top: auto; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 1.5rem;">
+                        <label style="color: var(--danger); display: block; margin-bottom: 0.5rem;">Danger Zone</label>
+                        <button class="btn btn-danger" onclick="singleTruncate()">
+                            Xóa Xóa sạch Database (Truncate DB)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right panel: DB View Single -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-title"> Dữ Liệu Vật Lý (pupdb.json)</span>
+                        <button class="btn-refresh" onclick="singleFetch()"> Làm mới</button>
+                    </div>
+
+                    <div class="db-stat-box">
+                        <span>Tổng số bản ghi:</span>
+                        <span class="stat-val" id="single-db-size">0</span>
+                    </div>
+
+                    <div class="data-list" id="single-data-list">
+                        <div class="empty-placeholder">Chưa tải dữ liệu...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== TAB 2: DISTRIBUTED CLUSTER ==================== -->
+        <div class="tab-content" id="tab-cluster">
+            
+            <!-- Topology Diagram -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="panel-title"> Sơ Đồ Cụm Phân Tán (Cluster Topology)</span>
+                    <button class="btn-refresh" onclick="clusterCheckAllStatuses()"> Kiểm tra kết nối cụm</button>
+                </div>
+                <div class="topology-panel">
+                    <div class="topology-map">
+                        <!-- Router Node -->
+                        <div class="topo-node" id="node-router">
+                            <span class="topo-node-name">Router Proxy</span>
+                            <span class="topo-node-port">Cổng 4000</span>
+                            <span class="node-tag master" style="background: rgba(16, 185, 129, 0.1); color: var(--primary);">Gateway</span>
+                        </div>
+
+                        <div class="topo-arrow">--></div>
+
+                        <!-- Shard 1 master -->
+                        <div class="topo-node" id="node-shard1-master">
+                            <span class="topo-node-name">Shard 1 - Master</span>
+                            <span class="topo-node-port">Cổng 4001</span>
+                            <span class="node-tag master">Master</span>
+                        </div>
+
+                        <div class="topo-arrow">--></div>
+
+                        <!-- Shard 1 slave -->
+                        <div class="topo-node" id="node-shard1-slave">
+                            <span class="topo-node-name">Shard 1 - Slave</span>
+                            <span class="topo-node-port">Cổng 4011</span>
+                            <span class="node-tag slave">Slave</span>
+                        </div>
+                    </div>
+
+                    <div class="topology-map" style="margin-top: -1rem;">
+                        <div style="width: 140px; display: flex; justify-content: center; color: rgba(255, 255, 255, 0.15)">|</div>
+                        <div style="width: 15px;"></div>
+                        <!-- Shard 2 master -->
+                        <div class="topo-node" id="node-shard2-master">
+                            <span class="topo-node-name">Shard 2 - Master</span>
+                            <span class="topo-node-port">Cổng 4002</span>
+                            <span class="node-tag master">Master</span>
+                        </div>
+
+                        <div class="topo-arrow">--></div>
+
+                        <!-- Shard 2 slave -->
+                        <div class="topo-node" id="node-shard2-slave">
+                            <span class="topo-node-name">Shard 2 - Slave</span>
+                            <span class="topo-node-port">Cổng 4012</span>
+                            <span class="node-tag slave">Slave</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cluster Controls and Data Grid -->
+            <div class="grid-half">
+                
+                <!-- Left panel: Cluster Playground -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-title"> Tương Tác Qua Router Proxy (Cổng 4000)</span>
+                    </div>
+                    <p class="panel-desc">Client chỉ giao tiếp duy nhất với Router Proxy. Router sẽ tự động băm khóa và định tuyến đến đúng phân mảnh Master.</p>
+
+                    <!-- Set -->
+                    <div class="form-group">
+                        <label>Thêm Cặp Dữ Liệu Phân Tán (Set Key-Value)</label>
+                        <input type="text" id="cluster-set-key" placeholder="Nhập Khóa (Ví dụ: apple, banana)...">
+                        <input type="text" id="cluster-set-val" placeholder="Nhập Giá trị..." style="margin-top: 0.4rem;">
+                        <button class="btn btn-primary" onclick="clusterSet()" style="margin-top: 0.5rem; align-self: flex-start;">
+                            --> Ghi Phân Phối
+                        </button>
+                    </div>
+
+                    <!-- Get -->
+                    <div class="form-group" style="margin-top: 0.5rem;">
+                        <label>Truy Vấn Tập Trung (Get)</label>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="text" id="cluster-get-key" placeholder="Nhập khóa truy vấn...">
+                            <button class="btn btn-accent" onclick="clusterGet()"> Query</button>
+                        </div>
+                    </div>
+
+                    <!-- Routing Visualizer Box -->
+                    <div class="form-group">
+                        <label>Công Cụ Giải Thích Định Tuyến (Routing Explain)</label>
+                        <div class="visualizer-log" id="cluster-explain-box" style="color: var(--accent); min-height: 90px; border-color: rgba(59, 130, 246, 0.2);">
+                            Nhập dữ liệu hoặc gửi truy vấn để xem cách Router Proxy tính toán phân mảnh...
+                        </div>
+                    </div>
+
+                    <!-- Danger Zone -->
+                    <div style="margin-top: auto; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <button class="btn btn-danger" onclick="clusterTruncate()">
+                            Xóa Xóa Sạch Cụm (Truncate Cluster)
+                        </button>
+                        <button class="btn-refresh" onclick="clusterFetchAll()" style="padding: 0.75rem 1.5rem;">
+                             Refresh Tải Dữ Liệu
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right panel: Aggregated view -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-title"> Dữ Liệu Đã Gộp Từ Router Proxy (Location Transparency)</span>
+                    </div>
+                    <p class="panel-desc">Khi client gọi <code>/dumps</code>, Router Proxy tự gộp và trả về JSON thống nhất.</p>
+
+                    <div class="db-stat-box">
+                        <span>Tổng số bản ghi cụm:</span>
+                        <span class="stat-val" id="cluster-db-size" style="color: var(--accent);">0</span>
+                    </div>
+
+                    <div class="data-list" id="cluster-data-list">
+                        <div class="empty-placeholder">Chưa tải dữ liệu...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detailed physical columns -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="panel-title"> Xem Phân Mảnh Vật Lý Chi Tiết (Physical Database Files)</span>
+                    <span style="font-size: 0.8rem; color: var(--text-muted)">Truy cập trực tiếp dữ liệu thô của từng máy chủ để xác minh tính phân mảnh</span>
+                </div>
+                
+                <div class="cluster-shards-grid">
+                    <!-- Shard 1 Master -->
+                    <div class="shard-column" id="col-s1m">
+                        <div class="shard-column-header">
+                            <div class="shard-title">
+                                <span>Shard 1 - Master</span>
+                                <span class="status-dot" id="s1m-dot"></span>
+                            </div>
+                            <span class="shard-port">Cổng 4001 | shard1_master.json</span>
+                        </div>
+                        <div class="shard-data-list" id="s1m-list">
+                            <div class="empty-placeholder">Trống</div>
+                        </div>
+                    </div>
+
+                    <!-- Shard 1 Slave -->
+                    <div class="shard-column" id="col-s1s">
+                        <div class="shard-column-header">
+                            <div class="shard-title">
+                                <span>Shard 1 - Slave</span>
+                                <span class="status-dot" id="s1s-dot"></span>
+                            </div>
+                            <span class="shard-port">Cổng 4011 | shard1_slave.json</span>
+                        </div>
+                        <div class="shard-data-list" id="s1s-list">
+                            <div class="empty-placeholder">Trống</div>
+                        </div>
+                    </div>
+
+                    <!-- Shard 2 Master -->
+                    <div class="shard-column" id="col-s2m">
+                        <div class="shard-column-header">
+                            <div class="shard-title">
+                                <span>Shard 2 - Master</span>
+                                <span class="status-dot" id="s2m-dot"></span>
+                            </div>
+                            <span class="shard-port">Cổng 4002 | shard2_master.json</span>
+                        </div>
+                        <div class="shard-data-list" id="s2m-list">
+                            <div class="empty-placeholder">Trống</div>
+                        </div>
+                    </div>
+
+                    <!-- Shard 2 Slave -->
+                    <div class="shard-column" id="col-s2s">
+                        <div class="shard-column-header">
+                            <div class="shard-title">
+                                <span>Shard 2 - Slave</span>
+                                <span class="status-dot" id="s2s-dot"></span>
+                            </div>
+                            <span class="shard-port">Cổng 4012 | shard2_slave.json</span>
+                        </div>
+                        <div class="shard-data-list" id="s2s-list">
+                            <div class="empty-placeholder">Trống</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Terminal Console (Chung) -->
+        <div class="console-panel">
+            <div class="console-header">
+                <div class="console-dots">
+                    <span class="console-dot console-dot-red"></span>
+                    <span class="console-dot console-dot-yellow"></span>
+                    <span class="console-dot console-dot-green"></span>
+                </div>
+                <span>Terminal Monitor Log</span>
+                <span style="cursor: pointer; color: var(--danger)" onclick="clearLogs()">Dọn dẹp logs</span>
+            </div>
+            <div class="console-logs" id="console-logs">
+                <div class="console-log-line">
+                    <span class="console-time">[14:10:00]</span>
+                    <span class="console-txt success">Hệ thống giám sát PupDB Visual Platform đã sẵn sàng.</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>

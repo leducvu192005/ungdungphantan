@@ -53,7 +53,11 @@ class CustomResponse(Response):
 def init_module():
     """ Initializes the Flask App. """
 
-    app = Flask(__name__)
+    dirpath = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(dirpath)
+    view_dir = os.path.join(project_root, 'view')
+
+    app = Flask(__name__, static_folder=view_dir, static_url_path='')
     app.response_class = CustomResponse
     database = PupDB(os.environ.get('PUPDB_FILE_PATH') or 'pupdb.json')
     return app, database
@@ -67,7 +71,8 @@ def index():
     """ Serves the dashboard HTML file. """
     try:
         dirpath = os.path.dirname(os.path.abspath(__file__))
-        html_path = os.path.join(os.path.dirname(dirpath), 'dashboard.html')
+        project_root = os.path.dirname(dirpath)
+        html_path = os.path.join(project_root, 'view', 'dashboard.html')
         with open(html_path, 'r', encoding='utf-8') as f:
             content = f.read()
         return content, 200, {'Content-Type': 'text/html; charset=utf-8'}
@@ -195,3 +200,12 @@ def db_truncate():
     return {
         'error': 'There was a problem truncating the DB.'
     }, 400
+
+
+@APP.after_request
+def add_cors_headers(response):
+    """ Allow cross-origin requests for dashboard integration. """
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS'
+    return response
