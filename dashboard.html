@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PupDB Centralized Dashboard</title>
+    <!-- Nhúng Font chữ hiện đại Outfit từ Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap"
+        rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: rgba(17, 25, 40, 0.75);
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --text-color: #f3f4f6;
+            --text-muted: #9ca3af;
+            --primary: #10b981;
+            /* Neon green */
+            --primary-glow: rgba(16, 185, 129, 0.25);
+            --accent: #3b82f6;
+            /* Blue */
+            --accent-glow: rgba(59, 130, 246, 0.25);
+            --danger: #ef4444;
+            /* Red */
+            --danger-glow: rgba(239, 68, 68, 0.25);
+            --success: #10b981;
+            --font-main: 'Outfit', sans-serif;
+            --font-mono: 'Fira Code', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            transition: all 0.25s ease;
+        }
+
+        body {
+            font-family: var(--font-main);
+            background-color: var(--bg-color);
+            background-image:
+                radial-gradient(at 10% 20%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 90% 80%, rgba(16, 185, 129, 0.1) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* Thang cuộn tùy chỉnh */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-color);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Container chính */
+        .container {
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 2rem;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        /* Header phong cách Glassmorphism */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 2rem;
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .header-title-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .db-icon {
+            font-size: 2.2rem;
+            color: var(--primary);
+            filter: drop-shadow(0 0 8px var(--primary-glow));
+        }
+
+        .header-text h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(90deg, #10b981 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-text p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        /* Trạng thái Server */
+        .server-status {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem 1.25rem;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 30px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: var(--danger);
+            box-shadow: 0 0 10px var(--danger);
+            animation: pulse-red 2s infinite;
+        }
+
+        .status-dot.online {
+            background-color: var(--primary);
+            box-shadow: 0 0 10px var(--primary);
+            animation: pulse-green 2s infinite;
+        }
+
+        .status-text {
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Layout Grid */
+        .layout-grid {
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            gap: 2rem;
+        }
+
+        @media (max-width: 968px) {
+            .layout-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Các khối Panel */
+        .panel {
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25);
+        }
+
+        .panel-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding-bottom: 0.75rem;
+            margin-bottom: 0.25rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-subtitle {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-top: -1rem;
+        }
+
+        /* Form Controls */
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            font-family: var(--font-main);
+            color: var(--text-color);
+            font-size: 0.95rem;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: rgba(255, 255, 255, 0.07);
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        /* Buttons */
+        .btn {
+            cursor: pointer;
+            border: none;
+            border-radius: 8px;
+            padding: 0.75rem 1.5rem;
+            font-family: var(--font-main);
+            font-weight: 600;
+            font-size: 0.95rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: #052e16;
+            box-shadow: 0 4px 14px 0 var(--primary-glow);
+        }
+
+        .btn-primary:hover {
+            background-color: #34d399;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px 0 var(--primary-glow);
+        }
+
+        .btn-accent {
+            background-color: var(--accent);
+            color: #ffffff;
+            box-shadow: 0 4px 14px 0 var(--accent-glow);
+        }
+
+        .btn-accent:hover {
+            background-color: #60a5fa;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px 0 var(--accent-glow);
+        }
+
+        .btn-danger {
+            background-color: var(--danger);
+            color: #ffffff;
+            box-shadow: 0 4px 14px 0 var(--danger-glow);
+        }
+
+        .btn-danger:hover {
+            background-color: #f87171;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px 0 var(--danger-glow);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+        }
+
+        /* Real-time DB Viewer */
+        .db-stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .db-stat-value {
+            font-weight: 600;
+            color: var(--primary);
+            font-family: var(--font-mono);
+        }
+
+        .data-list-container {
+            max-height: 480px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            padding-right: 4px;
+        }
+
+        /* Thẻ dữ liệu Key-Value */
+        .data-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .data-card::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: var(--primary);
+            box-shadow: 0 0 10px var(--primary);
+        }
+
+        .data-card:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.1);
+            transform: scale(1.01);
+        }
+
+        .data-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            max-width: 80%;
+        }
+
+        .data-key {
+            font-family: var(--font-mono);
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--primary);
+            word-break: break-all;
+        }
+
+        .data-value {
+            font-size: 0.9rem;
+            color: var(--text-color);
+            word-break: break-all;
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .action-icon-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+        }
+
+        .action-icon-btn:hover {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
+        }
+
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem 1rem;
+            color: var(--text-muted);
+            text-align: center;
+            gap: 1rem;
+        }
+
+        .empty-icon {
+            font-size: 3rem;
+            opacity: 0.3;
+        }
+
+        /* Trình hiển thị kết quả truy vấn */
+        .query-result-box {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            min-height: 50px;
+            display: flex;
+            align-items: center;
+            word-break: break-all;
+        }
+
+        .query-result-box.empty {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        /* Logger Terminal ở dưới cùng */
+        .terminal-panel {
+            background: #060913;
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8);
+        }
+
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 0.5rem;
+        }
+
+        .terminal-dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .dot-red {
+            background-color: #fc5753;
+        }
+
+        .dot-yellow {
+            background-color: #fdbc40;
+        }
+
+        .dot-green {
+            background-color: #33c748;
+        }
+
+        .terminal-content {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: #10b981;
+            height: 150px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            padding-right: 4px;
+        }
+
+        .log-entry {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .log-time {
+            color: var(--accent);
+            flex-shrink: 0;
+        }
+
+        .log-text {
+            color: #38bdf8;
+        }
+
+        .log-text.success {
+            color: #34d399;
+        }
+
+        .log-text.error {
+            color: var(--danger);
+        }
+
+        /* Animations */
+        @keyframes pulse-green {
+            0% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            }
+
+            70% {
+                box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+            }
+        }
+
+        @keyframes pulse-red {
+            0% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+
+            70% {
+                box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="header-title-container">
+                <span class="db-icon">🗄️</span>
+                <div class="header-text">
+                    <h1>PupDB Centralized Dashboard</h1>
+                    <p>Hệ Thống Quản Trị Cơ Sở Dữ Liệu Đơn Node - RESTful HTTP API</p>
+                </div>
+            </div>
+            <div class="server-status">
+                <div class="status-dot" id="server-status-dot"></div>
+                <span class="status-text" id="server-status-text">Đang kiểm tra...</span>
+            </div>
+        </header>
+
+        <!-- Grid layout -->
+        <div class="layout-grid">
+            <!-- Left Panel: Playground -->
+            <div class="panel">
+                <div class="panel-title">Tương Tác Playground</div>
+
+                <!-- Set Form -->
+                <div class="form-group">
+                    <label for="set-key">Lưu Cặp Dữ Liệu (Set Key-Value)</label>
+                    <input type="text" id="set-key" placeholder="Nhập khóa (Ví dụ: ten_sv, mon_hoc)...">
+                    <input type="text" id="set-value" placeholder="Nhập giá trị tương ứng..."
+                        style="margin-top: 0.5rem;">
+                    <button class="btn btn-primary" onclick="setItem()"
+                        style="margin-top: 0.5rem; align-self: flex-start;">
+                        Lưu Dữ Liệu
+                    </button>
+                </div>
+
+                <!-- Get Form -->
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label for="get-key">Truy Vấn Khóa (Get Value)</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="text" id="get-key" placeholder="Nhập khóa cần truy vấn...">
+                        <button class="btn btn-accent" onclick="getItem()"> Tìm</button>
+                    </div>
+                    <div class="query-result-box empty" id="query-result">
+                        Kết quả truy vấn sẽ hiển thị ở đây...
+                    </div>
+                </div>
+
+                <!-- Danger Zone -->
+                <div class="form-group"
+                    style="margin-top: auto; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 1.5rem;">
+                    <label style="color: var(--danger)">Danger Zone</label>
+                    <button class="btn btn-danger" onclick="truncateDb()" style="align-self: flex-start;">
+                        Xóa Sạch Cơ Sở Dữ Liệu (Truncate DB)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right Panel: Data View -->
+            <div class="panel">
+                <div class="panel-title">
+                    <span>Dữ Liệu Vật Lý (Real-time DB)</span>
+                    <button class="action-icon-btn" onclick="fetchData()" title="Làm mới dữ liệu"
+                        style="color: var(--primary);">
+
+                    </button>
+                </div>
+
+                <!-- Status Row -->
+                <div class="db-stat-row">
+                    <span>Tổng số bản ghi trong Database:</span>
+                    <span class="db-stat-value" id="db-size">0</span>
+                </div>
+
+                <!-- Real-time database list -->
+                <div class="data-list-container" id="data-list">
+                    <!-- Trạng thái trống -->
+                    <div class="empty-state">
+                        <div class="empty-icon">📂</div>
+                        <div>Cơ sở dữ liệu trống hoặc không có kết nối.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Terminal Logger -->
+        <div class="terminal-panel">
+            <div class="terminal-header">
+                <div class="terminal-dots">
+                    <span class="dot dot-red"></span>
+                    <span class="dot dot-yellow"></span>
+                    <span class="dot dot-green"></span>
+                </div>
+                <span>Hoạt Động HTTP API Logger</span>
+                <span style="cursor: pointer; color: var(--danger)" onclick="clearLogs()">Xóa log</span>
+            </div>
+            <div class="terminal-content" id="terminal-logs">
+                <div class="log-entry">
+                    <span class="log-time">[13:54:19]</span>
+                    <span class="log-text">Khởi tạo giao diện Dashboard thành công. Sẵn sàng kết nối API.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script tương tác -->
+    <script>
+        const API_BASE = window.location.origin; // Tự động nhận URL của Flask
+
+        // Hàm ghi nhật ký
+        function log(message, type = 'info') {
+            const container = document.getElementById('terminal-logs');
+            const now = new Date();
+            const timeStr = `[${now.toTimeString().split(' ')[0]}]`;
+
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'log-time';
+            timeSpan.textContent = timeStr;
+
+            const textSpan = document.createElement('span');
+            textSpan.className = `log-text ${type}`;
+            textSpan.textContent = message;
+
+            entry.appendChild(timeSpan);
+            entry.appendChild(textSpan);
+            container.appendChild(entry);
+
+            // Tự động cuộn xuống cuối
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('terminal-logs').innerHTML = '';
+            log('Đã xóa lịch sử nhật ký.');
+        }
+
+        // Kiểm tra kết nối tới Server
+        async function checkServerStatus() {
+            const statusDot = document.getElementById('server-status-dot');
+            const statusText = document.getElementById('server-status-text');
+
+            try {
+                // Thử ping qua API /keys
+                const response = await fetch(`${API_BASE}/keys`, { method: 'GET' });
+                if (response.ok) {
+                    statusDot.className = 'status-dot online';
+                    statusText.textContent = 'ONLINE';
+                    statusText.style.color = 'var(--primary)';
+                    return true;
+                }
+            } catch (e) {
+                // Lỗi kết nối
+            }
+
+            statusDot.className = 'status-dot';
+            statusText.textContent = 'OFFLINE';
+            statusText.style.color = 'var(--danger)';
+            return false;
+        }
+
+        // Tải toàn bộ dữ liệu vật lý
+        async function fetchData() {
+            const isOnline = await checkServerStatus();
+            if (!isOnline) {
+                document.getElementById('data-list').innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon" style="color: var(--danger)">⚠️</div>
+                        <div style="color: var(--danger)">Không thể kết nối đến máy chủ REST API (Cổng 4000). Vui lòng chạy lệnh Python khởi động Server!</div>
+                    </div>
+                `;
+                document.getElementById('db-size').textContent = '0';
+                return;
+            }
+
+            try {
+                log(`Gửi HTTP GET -> ${API_BASE}/dumps`);
+                const res = await fetch(`${API_BASE}/dumps`);
+                const data = await res.json();
+
+                const db = data.database || {};
+                const keys = Object.keys(db);
+
+                document.getElementById('db-size').textContent = keys.length;
+
+                const listContainer = document.getElementById('data-list');
+
+                if (keys.length === 0) {
+                    listContainer.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">📂</div>
+                            <div>Database trống. Hãy thử tạo bản ghi đầu tiên bên trái!</div>
+                        </div>
+                    `;
+                    log('Nhận phản hồi: Cơ sở dữ liệu hiện tại trống.', 'success');
+                    return;
+                }
+
+                listContainer.innerHTML = '';
+                keys.forEach(key => {
+                    const val = db[key];
+                    const card = document.createElement('div');
+                    card.className = 'data-card';
+                    card.innerHTML = `
+                        <div class="data-info">
+                            <span class="data-key">${key}</span>
+                            <span class="data-value">${typeof val === 'object' ? JSON.stringify(val) : val}</span>
+                        </div>
+                        <div class="card-actions">
+                            <button class="action-icon-btn" onclick="deleteItem('${key}')" title="Xóa khóa này">
+                                X
+                            </button>
+                        </div>
+                    `;
+                    listContainer.appendChild(card);
+                });
+                log(`Tải thành công ${keys.length} bản ghi dữ liệu.`, 'success');
+            } catch (err) {
+                log(`Lỗi khi lấy dữ liệu: ${err.message}`, 'error');
+            }
+        }
+
+        // Hàm thêm cặp dữ liệu
+        async function setItem() {
+            const key = document.getElementById('set-key').value.trim();
+            const val = document.getElementById('set-value').value.trim();
+
+            if (!key || !val) {
+                alert('Vui lòng nhập đầy đủ cả Khóa và Giá trị!');
+                return;
+            }
+
+            try {
+                log(`Gửi HTTP POST -> ${API_BASE}/set với body: {"key": "${key}", "value": "${val}"}`);
+                const response = await fetch(`${API_BASE}/set`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: key, value: val })
+                });
+
+                const resData = await response.json();
+                if (response.ok) {
+                    log(`Thành công: ${resData.message}`, 'success');
+                    document.getElementById('set-key').value = '';
+                    document.getElementById('set-value').value = '';
+                    fetchData(); // Refresh list
+                } else {
+                    log(`Lỗi từ server: ${resData.error}`, 'error');
+                }
+            } catch (err) {
+                log(`Lỗi mạng: ${err.message}`, 'error');
+            }
+        }
+
+        // Hàm lấy dữ liệu theo khóa
+        async function getItem() {
+            const key = document.getElementById('get-key').value.trim();
+            const resultBox = document.getElementById('query-result');
+
+            if (!key) {
+                alert('Vui lòng nhập khóa cần tìm kiếm!');
+                return;
+            }
+
+            resultBox.className = 'query-result-box';
+            resultBox.textContent = 'Đang tìm kiếm...';
+
+            try {
+                log(`Gửi HTTP GET -> ${API_BASE}/get?key=${key}`);
+                const response = await fetch(`${API_BASE}/get?key=${encodeURIComponent(key)}`);
+                const resData = await response.json();
+
+                if (response.ok) {
+                    if (resData.value !== null && resData.value !== undefined) {
+                        resultBox.textContent = `"${key}": "${resData.value}"`;
+                        resultBox.style.borderColor = 'var(--primary)';
+                        log(`Tìm thấy: "${key}" = "${resData.value}"`, 'success');
+                    } else {
+                        resultBox.textContent = `Không tìm thấy khóa "${key}" (Giá trị trả về là null)`;
+                        resultBox.style.borderColor = 'var(--danger)';
+                        log(`Truy vấn hoàn tất: Không tìm thấy khóa "${key}"`, 'error');
+                    }
+                } else {
+                    resultBox.textContent = `Lỗi: ${resData.error}`;
+                    resultBox.style.borderColor = 'var(--danger)';
+                    log(`Lỗi truy vấn: ${resData.error}`, 'error');
+                }
+            } catch (err) {
+                resultBox.textContent = `Lỗi kết nối: ${err.message}`;
+                resultBox.style.borderColor = 'var(--danger)';
+                log(`Lỗi kết nối API: ${err.message}`, 'error');
+            }
+        }
+
+        // Hàm xóa dữ liệu theo khóa
+        async function deleteItem(key) {
+            if (!confirm(`Bạn có chắc chắn muốn xóa khóa "${key}" khỏi database?`)) {
+                return;
+            }
+
+            try {
+                log(`Gửi HTTP DELETE -> ${API_BASE}/remove/${key}`);
+                const response = await fetch(`${API_BASE}/remove/${encodeURIComponent(key)}`, {
+                    method: 'DELETE'
+                });
+
+                const resData = await response.json();
+                if (response.ok) {
+                    log(`Đã xóa thành công: ${resData.message}`, 'success');
+                    fetchData(); // Refresh list
+
+                    // Nếu khóa này đang hiện ở kết quả truy vấn, dọn dẹp nó đi
+                    const resultBox = document.getElementById('query-result');
+                    if (resultBox.textContent.includes(`"${key}":`)) {
+                        resultBox.textContent = 'Kết quả truy vấn sẽ hiển thị ở đây...';
+                        resultBox.className = 'query-result-box empty';
+                        resultBox.style.borderColor = 'rgba(255, 255, 255, 0.05)';
+                    }
+                } else {
+                    log(`Lỗi từ server: ${resData.error}`, 'error');
+                }
+            } catch (err) {
+                log(`Lỗi kết nối mạng: ${err.message}`, 'error');
+            }
+        }
+
+        // Hàm xóa sạch DB
+        async function truncateDb() {
+            if (!confirm('CẢNH BÁO: Hành động này sẽ XÓA SẠCH toàn bộ dữ liệu trong Database. Bạn có chắc chắn muốn tiếp tục?')) {
+                return;
+            }
+
+            try {
+                log(`Gửi HTTP POST -> ${API_BASE}/truncate-db`);
+                const response = await fetch(`${API_BASE}/truncate-db`, {
+                    method: 'POST'
+                });
+
+                const resData = await response.json();
+                if (response.ok) {
+                    log(`Dọn dẹp thành công: ${resData.message}`, 'success');
+                    fetchData(); // Refresh list
+                    document.getElementById('query-result').textContent = 'Kết quả truy vấn sẽ hiển thị ở đây...';
+                    document.getElementById('query-result').className = 'query-result-box empty';
+                    document.getElementById('query-result').style.borderColor = 'rgba(255, 255, 255, 0.05)';
+                } else {
+                    log(`Lỗi từ server: ${resData.error}`, 'error');
+                }
+            } catch (err) {
+                log(`Lỗi mạng: ${err.message}`, 'error');
+            }
+        }
+
+        // Tự động kiểm tra và tải dữ liệu định kỳ mỗi 5 giây
+        setInterval(async () => {
+            const isOnline = await checkServerStatus();
+            if (isOnline) {
+                // Tự động đồng bộ nhẹ danh sách dữ liệu
+                const res = await fetch(`${API_BASE}/dumps`);
+                const data = await res.json();
+                const db = data.database || {};
+                const keys = Object.keys(db);
+
+                document.getElementById('db-size').textContent = keys.length;
+
+                // Chỉ vẽ lại giao diện nếu số lượng phần tử thay đổi để tránh lag
+                const currentCards = document.querySelectorAll('.data-card').length;
+                if (keys.length !== currentCards && currentCards > 0) {
+                    fetchData();
+                }
+            }
+        }, 5000);
+
+        // Khởi động
+        window.onload = () => {
+            fetchData();
+        };
+    </script>
+</body>
+
+</html>

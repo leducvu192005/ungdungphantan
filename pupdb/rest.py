@@ -62,6 +62,19 @@ def init_module():
 APP, DB = init_module()
 
 
+@APP.route('/', methods=['GET'])
+def index():
+    """ Serves the dashboard HTML file. """
+    try:
+        dirpath = os.path.dirname(os.path.abspath(__file__))
+        html_path = os.path.join(os.path.dirname(dirpath), 'dashboard.html')
+        with open(html_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return content, 200, {'Content-Type': 'text/html; charset=utf-8'}
+    except Exception as e:
+        return 'Dashboard HTML not found or error loading: {}'.format(str(e)), 500
+
+
 @APP.route('/get', methods=['GET'])
 def db_get():
     """ Endpoint Function to interact with PupDB's get() method. """
