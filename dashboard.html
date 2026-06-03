@@ -929,7 +929,7 @@
                                 <span>Shard 1 - Slave</span>
                                 <span class="status-dot" id="s1s-dot"></span>
                             </div>
-                            <span class="shard-port">Cổng 4101 | shard1_slave.json</span>
+                            <span class="shard-port">Cổng 4011 | shard1_slave.json</span>
                         </div>
                         <div class="shard-data-list" id="s1s-list">
                             <div class="empty-placeholder">Trống</div>
@@ -957,7 +957,7 @@
                                 <span>Shard 2 - Slave</span>
                                 <span class="status-dot" id="s2s-dot"></span>
                             </div>
-                            <span class="shard-port">Cổng 4102 | shard2_slave.json</span>
+                            <span class="shard-port">Cổng 4012 | shard2_slave.json</span>
                         </div>
                         <div class="shard-data-list" id="s2s-list">
                             <div class="empty-placeholder">Trống</div>
@@ -998,12 +998,13 @@
 
         const BASE_HOST = window.location.hostname || "127.0.0.1";
 
-        // Tạo API URL đầy đủ
-        const API_ROUTER = `${window.location.protocol}//${BASE_HOST}:${ROUTER_PORT}`;
-        const API_S1M = `${window.location.protocol}//${BASE_HOST}:${S1M_PORT}`;
-        const API_S2M = `${window.location.protocol}//${BASE_HOST}:${S2M_PORT}`;
-        const API_S1S = `${window.location.protocol}//${BASE_HOST}:${S1S_PORT}`;
-        const API_S2S = `${window.location.protocol}//${BASE_HOST}:${S2S_PORT}`;
+        // Xác định giao thức và tạo API URL đầy đủ
+        const PROTOCOL = window.location.protocol === "file:" ? "http:" : window.location.protocol;
+        const API_ROUTER = `${PROTOCOL}//${BASE_HOST}:${ROUTER_PORT}`;
+        const API_S1M = `${PROTOCOL}//${BASE_HOST}:${S1M_PORT}`;
+        const API_S2M = `${PROTOCOL}//${BASE_HOST}:${S2M_PORT}`;
+        const API_S1S = `${PROTOCOL}//${BASE_HOST}:${S1S_PORT}`;
+        const API_S2S = `${PROTOCOL}//${BASE_HOST}:${S2S_PORT}`;
 
         let currentActiveTab = "single";
 
