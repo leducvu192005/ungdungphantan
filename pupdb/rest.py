@@ -5,10 +5,36 @@
 import os
 import json
 import traceback
+import threading
+import urllib.request
+import logging
 
 from flask import Flask, request, Response, jsonify
 
 from pupdb.core import PupDB
+
+
+def replicate_to_slave(method, url_path, data=None):
+    """ Helper function to replicate set/remove operation to slave node asynchronously. """
+    slave_url = os.environ.get('PUPDB_SLAVE_URL')
+    if not slave_url:
+        return
+
+    # Formulate URL
+    base_url = slave_url.rstrip('/')
+    url = base_url + url_path
+
+    try:
+        req = urllib.request.Request(url, method=method)
+        if data is not None:
+            req.add_header('Content-Type', 'application/json')
+            req.data = json.dumps(data).encode('utf-8')
+
+        with urllib.request.urlopen(req, timeout=5) as response:
+            response.read()
+    except Exception as e:
+        logging.error('Error during replication to slave: %s', str(e))
+
 
 
 # pylint: disable=too-many-ancestors
@@ -61,6 +87,11 @@ def db_set():
         result = DB.set(key, value)
 
         if result:
+            if os.environ.get('PUPDB_ROLE') == 'master':
+                threading.Thread(
+                    target=replicate_to_slave,
+                    args=('POST', '/set', {'key': key, 'value': value})
+                ).start()
             return {
                 'message': 'Key \'{}\' set to Value \'{}\''.format(key, value)
             }, 200
@@ -88,6 +119,11 @@ def db_remove(key):
             return {'error': str(key_err)[1:-1]}, 404
 
         if result:
+            if os.environ.get('PUPDB_ROLE') == 'master':
+                threading.Thread(
+                    target=replicate_to_slave,
+                    args=('DELETE', '/remove/{}'.format(key))
+                ).start()
             return {
                 'message': 'Key \'{}\' removed from DB.'.format(key)
             }, 200

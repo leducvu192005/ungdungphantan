@@ -4,6 +4,7 @@
 """
 
 import logging
+import sys
 import os
 import subprocess
 
@@ -44,9 +45,10 @@ def test_mp_get_and_set():
 
     data_ranges = [(0, 100), (100, 200), (200, 300), (300, 400)]
 
+    writer_script = os.path.abspath(os.path.join(os.path.dirname(__file__), 'writer_process.py'))
     for data_range in data_ranges:
         proc = subprocess.Popen(
-            'python writer_process.py {} {}'.format(*data_range), shell=True)
+            '"{}" "{}" {} {}'.format(sys.executable, writer_script, *data_range), shell=True)
         proc.wait()
 
     database = PupDB(TEST_DB_PATH)

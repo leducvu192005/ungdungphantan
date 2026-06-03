@@ -6,3 +6,7 @@ lib64
 pyvenv.cfg
 share/
 testdb.json*
+*.json
+*.json.lock
+log_*.txt
+
