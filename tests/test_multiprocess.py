@@ -8,6 +8,7 @@ import sys
 import os
 import subprocess
 
+# pyrefly: ignore [missing-import]
 import pytest
 
 from pupdb.core import PupDB

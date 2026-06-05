@@ -7,6 +7,7 @@ import os
 import json
 import traceback
 
+# pyrefly: ignore [missing-import]
 from filelock import FileLock
 
 logging.basicConfig(
@@ -46,21 +47,31 @@ class PupDB(object):
                     db_file.write(json.dumps({}))
         return True
 
+    def _get_database_no_lock(self):
+        """ Returns the database json object without locking. """
+
+        with open(self.db_file_path, 'r') as db_file:
+            database = json.loads(db_file.read())
+            return database
+
+    def _flush_database_no_lock(self, database):
+        """ Flushes/Writes the database changes to disk without locking. """
+
+        with open(self.db_file_path, 'w') as db_file:
+            db_file.write(json.dumps(database))
+            return True
+
     def _get_database(self):
         """ Returns the database json object. """
 
         with self.process_lock:
-            with open(self.db_file_path, 'r') as db_file:
-                database = json.loads(db_file.read())
-                return database
+            return self._get_database_no_lock()
 
     def _flush_database(self, database):
         """ Flushes/Writes the database changes to disk. """
 
         with self.process_lock:
-            with open(self.db_file_path, 'w') as db_file:
-                db_file.write(json.dumps(database))
-                return True
+            return self._flush_database_no_lock(database)
 
     def set(self, key, val):
         """
@@ -69,9 +80,10 @@ class PupDB(object):
         """
 
         try:
-            database = self._get_database()
-            database[key] = val
-            self._flush_database(database)
+            with self.process_lock:
+                database = self._get_database_no_lock()
+                database[key] = val
+                self._flush_database_no_lock(database)
         except Exception:
             logging.error(
                 'Error while writing to DB: %s', traceback.format_exc())
@@ -94,15 +106,17 @@ class PupDB(object):
         """
 
         key = str(key)
-        database = self._get_database()
-        if key not in database:
-            raise KeyError(
-                'Non-existent Key {} in database'.format(key)
-            )
-        del database[key]
-
         try:
-            self._flush_database(database)
+            with self.process_lock:
+                database = self._get_database_no_lock()
+                if key not in database:
+                    raise KeyError(
+                        'Non-existent Key {} in database'.format(key)
+                    )
+                del database[key]
+                self._flush_database_no_lock(database)
+        except KeyError:
+            raise
         except Exception:
             logging.error(
                 'Error while writing to DB: %s', traceback.format_exc())

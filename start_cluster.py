@@ -58,7 +58,7 @@ def run_node(module, port, env_vars, name):
     return p
 
 def main():
-    clean_database_files()
+    # clean_database_files()
     print("=== KHỞI ĐỘNG HỆ THỐNG PHÂN TÁN PUPDB CLUSTER ===")
     
     try:

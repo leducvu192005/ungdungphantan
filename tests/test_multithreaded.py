@@ -9,6 +9,7 @@ from threading import Thread
 import json
 import sys
 
+# pyrefly: ignore [missing-import]
 import pytest
 
 from pupdb.core import PupDB
@@ -96,38 +97,27 @@ def test_mt_get_and_set_si():
         in a multi-threaded scenario, where all threads share a
         single instance (object) of PupDB.
 
-        PupDB currently does not support multiple threads using the same
-        PupDB instance, so the database file will get corrupted due to
-        race condition.
-
-        If you want to use PupDB with multiple threads, maintain separate
-        PupDB instance for each thread.
+        Now that PupDB has been updated to be thread-safe/concurrency-safe,
+        sharing a single PupDB instance across threads is fully supported.
     """
 
-    v_major, v_minor, _, _, _ = sys.version_info
-    if v_major < 3 or (v_major == 3 and v_minor <= 4):
-        error_cls = ValueError
-    else:
-        error_cls = json.decoder.JSONDecodeError
+    data_ranges = [
+        range(1, 50),
+        range(50, 100),
+        range(100, 150),
+        range(150, 201)
+    ]
+    writers = []
+    database = PupDB(TEST_DB_PATH)
 
-    with pytest.raises(error_cls):
-        data_ranges = [
-            range(1, 50),
-            range(50, 100),
-            range(100, 150),
-            range(150, 201)
-        ]
-        writers = []
-        database = PupDB(TEST_DB_PATH)
+    # Write from multiple threads.
+    for data_range in data_ranges:
+        writer = PupDBWriterThread(data_range, database)
+        writers.append(writer)
+        writer.start()
 
-        # Write from multiple threads.
-        for data_range in data_ranges:
-            writer = PupDBWriterThread(data_range, database)
-            writers.append(writer)
-            writer.start()
+    for writer in writers:
+        writer.join()
 
-        for writer in writers:
-            writer.join()
-
-        # Verify if all keys have been written properly.
-        assert len(database) == 200
+    # Verify if all keys have been written properly.
+    assert len(database) == 200

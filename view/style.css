@@ -1,19 +1,23 @@
 :root {
-    --bg-color: #080c14;
+    --bg-color: #ffffff;
     --panel-bg: rgba(13, 20, 35, 0.8);
     --panel-border: rgba(255, 255, 255, 0.08);
     --text-color: #f3f4f6;
     --text-muted: #9ca3af;
-    
-    --primary: #10b981; /* Neon green */
+
+    --primary: #10b981;
+    /* Neon green */
     --primary-glow: rgba(16, 185, 129, 0.25);
-    --accent: #3b82f6; /* Blue */
+    --accent: #3b82f6;
+    /* Blue */
     --accent-glow: rgba(59, 130, 246, 0.25);
-    --purple: #8b5cf6; /* Purple */
+    --purple: #8b5cf6;
+    /* Purple */
     --purple-glow: rgba(139, 92, 246, 0.25);
-    --danger: #ef4444; /* Red */
+    --danger: #ef4444;
+    /* Red */
     --danger-glow: rgba(239, 68, 68, 0.25);
-    
+
     --font-main: 'Outfit', sans-serif;
     --font-mono: 'Fira Code', monospace;
 }
@@ -28,7 +32,7 @@
 body {
     font-family: var(--font-main);
     background-color: var(--bg-color);
-    background-image: 
+    background-image:
         radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.12) 0px, transparent 50%),
         radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.1) 0px, transparent 50%),
         radial-gradient(at 50% 50%, rgba(16, 185, 129, 0.05) 0px, transparent 50%);
@@ -45,13 +49,16 @@ body {
     width: 8px;
     height: 8px;
 }
+
 ::-webkit-scrollbar-track {
     background: var(--bg-color);
 }
+
 ::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.1);
     border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.2);
 }
@@ -143,8 +150,15 @@ body {
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* Panels */
@@ -436,6 +450,7 @@ input:focus {
         grid-template-columns: repeat(2, 1fr);
     }
 }
+
 @media (max-width: 600px) {
     .cluster-shards-grid {
         grid-template-columns: 1fr;
@@ -575,7 +590,7 @@ input:focus {
     border: 1px solid var(--panel-border);
     border-radius: 12px;
     padding: 1.25rem;
-    box-shadow: inset 0 0 12px rgba(0,0,0,0.8);
+    box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.8);
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
@@ -604,9 +619,17 @@ input:focus {
     border-radius: 50%;
 }
 
-.console-dot-red { background-color: #ef4444; }
-.console-dot-yellow { background-color: #fbbf24; }
-.console-dot-green { background-color: #10b981; }
+.console-dot-red {
+    background-color: #ef4444;
+}
+
+.console-dot-yellow {
+    background-color: #fbbf24;
+}
+
+.console-dot-green {
+    background-color: #10b981;
+}
 
 .console-logs {
     font-family: var(--font-mono);

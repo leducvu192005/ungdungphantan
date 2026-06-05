@@ -6,6 +6,7 @@ import logging
 import os
 import json
 
+# pyrefly: ignore [missing-import]
 import pytest
 
 logging.basicConfig(

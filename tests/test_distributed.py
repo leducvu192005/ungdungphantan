@@ -15,6 +15,7 @@ import urllib.error
 import multiprocessing
 import logging
 
+# pyrefly: ignore [missing-import]
 import pytest
 
 logging.basicConfig(
