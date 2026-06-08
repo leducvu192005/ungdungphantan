@@ -202,6 +202,36 @@ def test_active_passive_replication():
         assert status == 200
         assert res['value'] is None
 
+        # 3. Truncate Master and verify it replicates to Slave
+        # First write a key so we can test clearing it
+        res, status = make_http_request(
+            'http://127.0.0.1:{}/set'.format(master_port),
+            'POST',
+            {'key': 'rep_test2', 'value': 'hello_replica2'}
+        )
+        assert status == 200
+        time.sleep(0.3)
+
+        # Verify key exists on both Master and Slave
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=rep_test2'.format(master_port))
+        assert res['value'] == 'hello_replica2'
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=rep_test2'.format(slave_port))
+        assert res['value'] == 'hello_replica2'
+
+        # Call truncate-db on Master
+        res, status = make_http_request(
+            'http://127.0.0.1:{}/truncate-db'.format(master_port),
+            'POST'
+        )
+        assert status == 200
+        time.sleep(0.3)
+
+        # Verify both Master and Slave are completely truncated/empty
+        res, status = make_http_request('http://127.0.0.1:{}/dumps'.format(master_port))
+        assert res['database'] == {}
+        res, status = make_http_request('http://127.0.0.1:{}/dumps'.format(slave_port))
+        assert res['database'] == {}
+
     finally:
         # Clean up processes and files
         master_proc.terminate()

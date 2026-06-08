@@ -220,6 +220,11 @@ def db_truncate():
     result = DB.truncate_db()
 
     if result:
+        if os.environ.get('PUPDB_ROLE') == 'master':
+            threading.Thread(
+                target=replicate_to_slave,
+                args=('POST', '/truncate-db')
+            ).start()
         return {
             'message': 'DB has been truncated successfully.'
         }, 200
