@@ -301,6 +301,17 @@
             </div>
         </div>
 
+        <!-- Recycle Bin Panel -->
+        <div class="panel" style="margin-top: 1rem;">
+            <div class="panel-header">
+                <span class="panel-title">🗑️ Thùng Rác Phân Tán (Distributed Recycle Bin - Lưu tạm trên Slave)</span>
+                <span style="font-size: 0.8rem; color: var(--text-muted)">Dữ liệu đã xóa chủ động được lưu tạm 120 giây trên Slave. Nhấp "Phục hồi" để lấy lại dữ liệu.</span>
+            </div>
+            <div class="data-list" id="cluster-recycle-list" style="display: flex; flex-wrap: wrap; gap: 1rem; padding: 1rem; min-height: 80px;">
+                <div class="empty-placeholder">Thùng rác trống.</div>
+            </div>
+        </div>
+
         <!-- Terminal Console (Chung) -->
         <div class="console-panel">
             <div class="console-header">

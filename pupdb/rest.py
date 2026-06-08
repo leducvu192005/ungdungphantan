@@ -8,6 +8,7 @@ import traceback
 import threading
 import urllib.request
 import logging
+import time
 
 from flask import Flask, request, Response, jsonify
 
@@ -64,6 +65,51 @@ def init_module():
 
 
 APP, DB = init_module()
+
+RECYCLE_LOCK = threading.Lock()
+
+def load_recycle_bin(path):
+    with RECYCLE_LOCK:
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+def save_recycle_bin(path, data):
+    with RECYCLE_LOCK:
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+        except Exception as e:
+            logging.error("Failed to save recycle bin: %s", str(e))
+
+def start_recycle_cleanup_thread(path, interval=5, ttl=120):
+    def cleanup_loop():
+        while True:
+            time.sleep(interval)
+            bin_data = load_recycle_bin(path)
+            if not bin_data:
+                continue
+            now = time.time()
+            changed = False
+            for k in list(bin_data.keys()):
+                deleted_at = bin_data[k].get('deleted_at', 0)
+                if now - deleted_at > ttl:
+                    del bin_data[k]
+                    changed = True
+            if changed:
+                save_recycle_bin(path, bin_data)
+                
+    t = threading.Thread(target=cleanup_loop, daemon=True)
+    t.start()
+
+if os.environ.get('PUPDB_ROLE') == 'slave':
+    db_file = os.environ.get('PUPDB_FILE_PATH') or 'pupdb.json'
+    recycle_file = f"{db_file}_recycle.json"
+    start_recycle_cleanup_thread(recycle_file, interval=5, ttl=120)
 
 
 def sync_from_slave_on_startup(db):
@@ -137,6 +183,13 @@ def db_set():
                     target=replicate_to_slave,
                     args=('POST', '/set', {'key': key, 'value': value})
                 ).start()
+            elif os.environ.get('PUPDB_ROLE') == 'slave':
+                db_file_path = os.environ.get('PUPDB_FILE_PATH') or 'pupdb.json'
+                recycle_file_path = f"{db_file_path}_recycle.json"
+                bin_data = load_recycle_bin(recycle_file_path)
+                if key in bin_data:
+                    del bin_data[key]
+                    save_recycle_bin(recycle_file_path, bin_data)
             return {
                 'message': 'Key \'{}\' set to Value \'{}\''.format(key, value)
             }, 200
@@ -158,6 +211,7 @@ def db_remove(key):
         if not key:
             return {'error': 'Missing parameter \'key\''}, 400
 
+        val = DB.get(key)
         try:
             result = DB.remove(key)
         except KeyError as key_err:
@@ -169,6 +223,15 @@ def db_remove(key):
                     target=replicate_to_slave,
                     args=('DELETE', '/remove/{}'.format(key))
                 ).start()
+            elif os.environ.get('PUPDB_ROLE') == 'slave':
+                db_file_path = os.environ.get('PUPDB_FILE_PATH') or 'pupdb.json'
+                recycle_file_path = f"{db_file_path}_recycle.json"
+                bin_data = load_recycle_bin(recycle_file_path)
+                bin_data[key] = {
+                    "value": val,
+                    "deleted_at": time.time()
+                }
+                save_recycle_bin(recycle_file_path, bin_data)
             return {
                 'message': 'Key \'{}\' removed from DB.'.format(key)
             }, 200
@@ -217,14 +280,27 @@ def db_dumps():
 def db_truncate():
     """ Endpoint Function to interact with PupDB's truncate_db() method. """
 
+    items = list(DB.items())
     result = DB.truncate_db()
 
     if result:
-        if os.environ.get('PUPDB_ROLE') == 'master':
+        role = os.environ.get('PUPDB_ROLE')
+        if role == 'master':
             threading.Thread(
                 target=replicate_to_slave,
                 args=('POST', '/truncate-db')
             ).start()
+        elif role == 'slave':
+            db_file_path = os.environ.get('PUPDB_FILE_PATH') or 'pupdb.json'
+            recycle_file_path = f"{db_file_path}_recycle.json"
+            bin_data = load_recycle_bin(recycle_file_path)
+            now = time.time()
+            for key, val in items:
+                bin_data[key] = {
+                    "value": val,
+                    "deleted_at": now
+                }
+            save_recycle_bin(recycle_file_path, bin_data)
         return {
             'message': 'DB has been truncated successfully.'
         }, 200
@@ -232,6 +308,88 @@ def db_truncate():
     return {
         'error': 'There was a problem truncating the DB.'
     }, 400
+
+
+@APP.route('/recycle-bin', methods=['GET'])
+def get_recycle_bin_api():
+    role = os.environ.get('PUPDB_ROLE')
+    if role == 'slave':
+        db_file_path = os.environ.get('PUPDB_FILE_PATH') or 'pupdb.json'
+        recycle_file_path = f"{db_file_path}_recycle.json"
+        bin_data = load_recycle_bin(recycle_file_path)
+        return jsonify(bin_data), 200
+    elif role == 'master':
+        slave_url = os.environ.get('PUPDB_SLAVE_URL')
+        if slave_url:
+            url = slave_url.rstrip('/') + '/recycle-bin'
+            try:
+                req = urllib.request.Request(url, method='GET')
+                with urllib.request.urlopen(req, timeout=3) as response:
+                    return json.loads(response.read().decode('utf-8')), 200
+            except Exception as e:
+                return {'error': 'Failed to query Slave recycle bin: {}'.format(str(e))}, 502
+        return {'error': 'No Slave configured for this Master'}, 400
+    else:
+        return {'error': 'Unsupported role'}, 400
+
+
+@APP.route('/restore-internal', methods=['POST'])
+def restore_internal_api():
+    key = request.json.get('key')
+    if not key:
+        return {'error': "Missing parameter 'key'"}, 400
+        
+    role = os.environ.get('PUPDB_ROLE')
+    if role != 'slave':
+        return {'error': 'Only Slave supports restore-internal'}, 400
+        
+    db_file_path = os.environ.get('PUPDB_FILE_PATH') or 'pupdb.json'
+    recycle_file_path = f"{db_file_path}_recycle.json"
+    bin_data = load_recycle_bin(recycle_file_path)
+    if key not in bin_data:
+        return {'error': 'Key not found in recycle bin'}, 404
+        
+    item = bin_data[key]
+    val = item['value']
+    del bin_data[key]
+    save_recycle_bin(recycle_file_path, bin_data)
+    
+    return {'key': key, 'value': val}, 200
+
+
+@APP.route('/restore', methods=['POST'])
+def restore_key_api():
+    key = request.json.get('key')
+    if not key:
+        return {'error': "Missing parameter 'key'"}, 400
+
+    role = os.environ.get('PUPDB_ROLE')
+    if role == 'master':
+        slave_url = os.environ.get('PUPDB_SLAVE_URL')
+        if not slave_url:
+            return {'error': 'No Slave configured'}, 400
+        
+        url = slave_url.rstrip('/') + '/restore-internal'
+        try:
+            payload = json.dumps({'key': key}).encode('utf-8')
+            req = urllib.request.Request(url, method='POST', headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(req, data=payload, timeout=3) as response:
+                resp_data = response.read()
+                resp_json = json.loads(resp_data.decode('utf-8'))
+                if 'value' in resp_json:
+                    val = resp_json['value']
+                    DB.set(key, val)
+                    threading.Thread(
+                        target=replicate_to_slave,
+                        args=('POST', '/set', {'key': key, 'value': val})
+                    ).start()
+                    return {'message': 'Key \'{}\' restored successfully.'.format(key)}, 200
+                else:
+                    return {'error': resp_json.get('error', 'Unknown error during restore')}, 400
+        except Exception as e:
+            return {'error': 'Failed to restore from Slave: {}'.format(str(e))}, 502
+    else:
+        return {'error': 'Restore must be called on Master'}, 400
 
 
 @APP.after_request

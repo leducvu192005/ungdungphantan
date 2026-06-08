@@ -1,3 +1,6 @@
+// Hỗ trợ tự động chạy test không bị nghẽn confirm dialog
+const bypassConfirm = window.location.search.includes("bypass_confirm=true");
+
 // Cấu hình các cổng kết nối và máy chủ
 const ROUTER_PORT = 4000;
 const S1M_PORT = 4001;
@@ -236,7 +239,7 @@ async function singleGet() {
 }
 
 async function singleDelete(key) {
-    if (!confirm(`Xóa khóa "${key}"?`)) return;
+    if (!bypassConfirm && !confirm(`Xóa khóa "${key}"?`)) return;
 
     try {
         writeLog(`[Đơn Node] Gửi DELETE -> ${API_ROUTER}/remove/${key}`);
@@ -257,7 +260,7 @@ async function singleDelete(key) {
 }
 
 async function singleTruncate() {
-    if (!confirm("Xóa sạch toàn bộ dữ liệu đơn Node?")) return;
+    if (!bypassConfirm && !confirm("Xóa sạch toàn bộ dữ liệu đơn Node?")) return;
 
     try {
         writeLog(`[Đơn Node] Gửi POST -> ${API_ROUTER}/truncate-db`);
@@ -424,6 +427,7 @@ async function clusterFetchAll() {
     fetchPhysicalNodeData(API_S1S, "s1s-list", true);
     fetchPhysicalNodeData(API_S2M, "s2m-list", false);
     fetchPhysicalNodeData(API_S2S, "s2s-list", true);
+    fetchRecycleBin();
 }
 
 // Lấy dữ liệu trực tiếp của từng Node phụ
@@ -578,7 +582,7 @@ async function clusterGet() {
 
 // Xóa dữ liệu qua Router
 async function clusterDelete(key) {
-    if (!confirm(`Xóa khóa "${key}" trên Cụm Phân Tán?`)) return;
+    if (!bypassConfirm && !confirm(`Xóa khóa "${key}" trên Cụm Phân Tán?`)) return;
 
     const asciiSum = sumAscii(key);
     const shardIdx = asciiSum % 2;
@@ -618,7 +622,7 @@ async function clusterDelete(key) {
 
 // Truncate toàn cụm
 async function clusterTruncate() {
-    if (!confirm("CẢNH BÁO: Bạn có muốn xóa sạch toàn bộ các phân mảnh trong cụm?")) return;
+    if (!bypassConfirm && !confirm("CẢNH BÁO: Bạn có muốn xóa sạch toàn bộ các phân mảnh trong cụm?")) return;
 
     try {
         writeLog(`[Router] Gửi POST /truncate-db để xóa toàn cụm...`);
@@ -644,8 +648,109 @@ setInterval(() => {
         singleCheckStatus();
     } else {
         clusterCheckAllStatuses();
+        fetchRecycleBin();
     }
 }, 5000);
+
+// ==================== THÙNG RÁC PHÂN TÁN (RECYCLE BIN) ====================
+
+let recycleBinCache = {};
+
+async function fetchRecycleBin() {
+    const container = document.getElementById("cluster-recycle-list");
+    if (!container) return;
+
+    try {
+        const res = await fetch(`${API_ROUTER}/recycle-bin`);
+        if (!res.ok) throw new Error("Cổng đóng");
+        const data = await res.json();
+        recycleBinCache = data;
+        renderRecycleBin();
+    } catch (e) {
+        container.innerHTML = `<div class="empty-placeholder" style="color: var(--danger)">Không thể kết nối Thùng rác.</div>`;
+    }
+}
+
+function renderRecycleBin() {
+    const container = document.getElementById("cluster-recycle-list");
+    if (!container) return;
+
+    const keys = Object.keys(recycleBinCache);
+    if (keys.length === 0) {
+        container.innerHTML = `<div class="empty-placeholder">Thùng rác trống.</div>`;
+        return;
+    }
+
+    container.innerHTML = "";
+    keys.forEach(key => {
+        const item = recycleBinCache[key];
+        const remainingSecs = Math.max(0, Math.round(120 - (Date.now() / 1000 - item.deleted_at)));
+        
+        if (remainingSecs <= 0) return;
+
+        const card = document.createElement("div");
+        card.className = "data-card accent-card";
+        card.style.borderLeftColor = "var(--danger)";
+        card.style.width = "250px";
+        card.style.margin = "0.2rem";
+
+        card.innerHTML = `
+            <div>
+                <div class="card-key">${key} <span style="font-size: 0.7rem; color: var(--text-muted)">(Mảnh ${item.shard})</span></div>
+                <div class="card-val">${item.value}</div>
+                <div style="font-size: 0.75rem; color: var(--danger); margin-top: 0.3rem;" id="ttl-${key}">
+                    ⏳ Tự động hủy sau: ${remainingSecs}s
+                </div>
+            </div>
+            <button class="btn btn-primary" onclick="clusterRestore('${key}')" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background-color: var(--primary); border-color: var(--primary); align-self: center; margin-left: auto;">
+                Phục hồi
+            </button>
+        `;
+        container.appendChild(card);
+    });
+}
+
+// Tick mỗi giây để đếm ngược TTL
+setInterval(() => {
+    if (currentActiveTab === "cluster" && Object.keys(recycleBinCache).length > 0) {
+        let hasChanges = false;
+        Object.keys(recycleBinCache).forEach(key => {
+            const item = recycleBinCache[key];
+            const remainingSecs = Math.max(0, Math.round(120 - (Date.now() / 1000 - item.deleted_at)));
+            const el = document.getElementById(`ttl-${key}`);
+            if (el) {
+                if (remainingSecs <= 0) {
+                    hasChanges = true;
+                } else {
+                    el.textContent = `⏳ Tự động hủy sau: ${remainingSecs}s`;
+                }
+            }
+        });
+        if (hasChanges) {
+            fetchRecycleBin();
+        }
+    }
+}, 1000);
+
+async function clusterRestore(key) {
+    try {
+        writeLog(`[Router] Gửi POST /restore để khôi phục khóa: "${key}"`);
+        const response = await fetch(`${API_ROUTER}/restore`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ key })
+        });
+        const data = await response.json();
+        if (response.ok) {
+            writeLog(`[Router] Phục hồi thành công: ${data.message}`, "success");
+            clusterFetchAll();
+        } else {
+            writeLog(`[Router] Lỗi phục hồi: ${data.error}`, "error");
+        }
+    } catch (e) {
+        writeLog(`[Router] Lỗi phục hồi: ${e.message}`, "error");
+    }
+}
 
 // Khởi động khi tải xong trang
 window.addEventListener('DOMContentLoaded', () => {

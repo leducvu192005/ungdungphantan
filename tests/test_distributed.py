@@ -502,3 +502,129 @@ def test_failover_and_failback_sync_back():
         router_proc.join()
         slave_proc.join()
         clean_db_files(master_db, slave_db)
+
+
+def test_recycle_bin_and_restore():
+    """ Tests that deleted keys go to Slave's recycle bin and can be restored, isolated from startup sync. """
+    master_db = 'master_recycle_db.json'
+    slave_db = 'slave_recycle_db.json'
+    slave_recycle = '{}_recycle.json'.format(slave_db)
+
+    master_port = 28001
+    slave_port = 28011
+    router_port = 28000
+
+    clean_db_files(master_db, slave_db, slave_recycle)
+
+    # Start Slave Node
+    slave_proc = multiprocessing.Process(
+        target=run_slave_server,
+        args=(slave_db, slave_port)
+    )
+    slave_proc.daemon = True
+    slave_proc.start()
+
+    # Start Master Node
+    master_proc = multiprocessing.Process(
+        target=run_master_server,
+        args=(master_db, master_port, 'http://127.0.0.1:{}'.format(slave_port))
+    )
+    master_proc.daemon = True
+    master_proc.start()
+
+    # Start Router
+    shards_list = ['http://127.0.0.1:{}'.format(master_port)]
+    slaves_list = ['http://127.0.0.1:{}'.format(slave_port)]
+    router_proc = multiprocessing.Process(
+        target=run_router_server_with_slaves,
+        args=(router_port, shards_list, slaves_list)
+    )
+    router_proc.daemon = True
+    router_proc.start()
+
+    try:
+        # Wait for all nodes to be ready
+        wait_for_port(slave_port)
+        wait_for_port(master_port)
+        wait_for_port(router_port)
+
+        # 1. Set a key via Router
+        res, status = make_http_request(
+            'http://127.0.0.1:{}/set'.format(router_port),
+            'POST',
+            {'key': 'item1', 'value': 'value1'}
+        )
+        assert status == 200
+        time.sleep(0.3)
+
+        # Verify key exists on both Master and Slave
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=item1'.format(master_port))
+        assert res['value'] == 'value1'
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=item1'.format(slave_port))
+        assert res['value'] == 'value1'
+
+        # 2. Delete key via Router
+        res, status = make_http_request(
+            'http://127.0.0.1:{}/remove/item1'.format(router_port),
+            'DELETE'
+        )
+        assert status == 200
+        time.sleep(0.3)
+
+        # Verify key is deleted from Master and Slave active DB
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=item1'.format(master_port))
+        assert res['value'] is None
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=item1'.format(slave_port))
+        assert res['value'] is None
+
+        # Verify key exists in Slave's recycle bin
+        res, status = make_http_request('http://127.0.0.1:{}/recycle-bin'.format(router_port))
+        assert status == 200
+        assert 'item1' in res
+        assert res['item1']['value'] == 'value1'
+
+        # 3. Restart Master Node. Verify Master remains empty (does NOT restore deleted key on startup)
+        master_proc.terminate()
+        master_proc.join()
+
+        master_proc = multiprocessing.Process(
+            target=run_master_server,
+            args=(master_db, master_port, 'http://127.0.0.1:{}'.format(slave_port))
+        )
+        master_proc.daemon = True
+        master_proc.start()
+        wait_for_port(master_port)
+        time.sleep(0.5)
+
+        # Verify Master is empty
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=item1'.format(master_port))
+        assert res['value'] is None
+
+        # 4. Explicitly restore key via Router
+        res, status = make_http_request(
+            'http://127.0.0.1:{}/restore'.format(router_port),
+            'POST',
+            {'key': 'item1'}
+        )
+        assert status == 200
+        time.sleep(0.3)
+
+        # Verify key is restored in both Master and Slave active DB
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=item1'.format(master_port))
+        assert res['value'] == 'value1'
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=item1'.format(slave_port))
+        assert res['value'] == 'value1'
+
+        # Verify key is gone from recycle bin
+        res, status = make_http_request('http://127.0.0.1:{}/recycle-bin'.format(router_port))
+        assert 'item1' not in res
+
+    finally:
+        router_proc.terminate()
+        if master_proc.is_alive():
+            master_proc.terminate()
+            master_proc.join()
+        slave_proc.terminate()
+        router_proc.join()
+        slave_proc.join()
+        clean_db_files(master_db, slave_db, slave_recycle)

@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.error
 import logging
 
+# pyrefly: ignore [missing-import]
 from flask import Flask, request, Response, jsonify, g
 
 logging.basicConfig(
@@ -294,6 +295,48 @@ def router_truncate():
     if success:
         return {'message': 'DB cluster has been truncated successfully.'}, 200
     return {'error': 'Failed to truncate one or more shards', 'details': errors}, 400
+
+
+@APP.route('/recycle-bin', methods=['GET'])
+def router_recycle_bin():
+    """ Proxy endpoint to aggregate the Recycle Bin from all shards. """
+    shards = get_shards()
+    if not shards:
+        return {'error': 'No shards configured'}, 500
+
+    merged_recycle = {}
+    for i, shard in enumerate(shards):
+        resp, code = forward_request('{}/recycle-bin'.format(shard), 'GET')
+        if code == 200 and isinstance(resp, dict):
+            for k, v in resp.items():
+                if isinstance(v, dict):
+                    merged_recycle[k] = {
+                        "value": v.get("value"),
+                        "deleted_at": v.get("deleted_at"),
+                        "shard": i + 1
+                    }
+    return jsonify(merged_recycle), 200
+
+
+@APP.route('/restore', methods=['POST'])
+def router_restore():
+    """ Proxy endpoint to restore a key from the Recycle Bin of its corresponding shard. """
+    try:
+        key = request.json.get('key')
+        if not key:
+            return {'error': "Missing parameter 'key'"}, 400
+
+        shards = get_shards()
+        if not shards:
+            return {'error': 'No shards configured'}, 500
+
+        shard_url = get_shard_url(key, shards)
+        url = '{}/restore'.format(shard_url)
+        payload = json.dumps({'key': key}).encode('utf-8')
+        resp, code = forward_request(url, 'POST', request.headers, payload)
+        return resp, code
+    except Exception as e:
+        return {'error': 'Unable to process restore request. Details: {}'.format(str(e))}, 422
 
 
 @APP.after_request
