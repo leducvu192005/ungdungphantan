@@ -548,6 +548,7 @@ def sync_from_slave_on_startup(db):
                                 db._flush_database_no_lock(slave_db)
             except Exception as e:
                 logging.error("Failed to sync from Slave on startup: %s", str(e))
+\end{lstlisting}
 
 \subsection{Cơ chế Thùng rác phân tán (Distributed Recycle Bin) bảo vệ dữ liệu xóa chủ động}
 Để đảm bảo an toàn dữ liệu trước các thao tác xóa nhầm chủ động của người dùng (thông qua lệnh \textit{DELETE /remove} hoặc \textit{POST /truncate-db}), chúng tôi phát triển thêm cơ chế \textbf{Thùng rác phân tán (Distributed Recycle Bin)} chạy trên các node Slave. 
