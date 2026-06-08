@@ -24,21 +24,21 @@ let currentActiveTab = "single";
 function writeLog(message, type = "info") {
     const container = document.getElementById("console-logs");
     if (!container) return;
-    
+
     const now = new Date();
     const timeStr = `[${now.toTimeString().split(" ")[0]}]`;
-    
+
     const line = document.createElement("div");
     line.className = "console-log-line";
-    
+
     const timeSpan = document.createElement("span");
     timeSpan.className = "console-time";
     timeSpan.textContent = timeStr;
-    
+
     const txtSpan = document.createElement("span");
     txtSpan.className = `console-txt ${type}`;
     txtSpan.textContent = message;
-    
+
     line.appendChild(timeSpan);
     line.appendChild(txtSpan);
     container.appendChild(line);
@@ -57,7 +57,7 @@ function clearLogs() {
 function switchTab(tabId) {
     document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
     document.querySelectorAll(".nav-btn").forEach(el => el.classList.remove("active"));
-    
+
     if (tabId === "single") {
         document.getElementById("tab-single").classList.add("active");
         document.getElementById("btn-tab-single").classList.add("active");
@@ -78,9 +78,9 @@ async function pingPort(url) {
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout
-        
+
         // Gửi request đến root '/' thay vì '/keys' để tránh việc gọi chéo phân tán gây chậm trễ khi có node sập
-        const response = await fetch(`${url}/`, { 
+        const response = await fetch(`${url}/`, {
             method: "GET",
             signal: controller.signal
         });
@@ -98,7 +98,7 @@ async function singleCheckStatus() {
     const isOnline = await pingPort(API_ROUTER);
     const dot = document.getElementById("single-status-dot");
     const text = document.getElementById("single-status-text");
-    
+
     if (!dot || !text) return isOnline;
 
     if (isOnline) {
@@ -118,9 +118,9 @@ async function singleFetch() {
     const isOnline = await singleCheckStatus();
     const listContainer = document.getElementById("single-data-list");
     const sizeVal = document.getElementById("single-db-size");
-    
+
     if (!listContainer) return;
-    
+
     if (!isOnline) {
         listContainer.innerHTML = `
             <div class="empty-placeholder" style="color: var(--danger); border-color: var(--danger)">
@@ -138,9 +138,9 @@ async function singleFetch() {
         const data = await res.json();
         const db = data.database || {};
         const keys = Object.keys(db);
-        
+
         if (sizeVal) sizeVal.textContent = keys.length;
-        
+
         if (keys.length === 0) {
             listContainer.innerHTML = `
                 <div class="empty-placeholder">Cơ sở dữ liệu trống. Nhập dữ liệu ở bảng bên trái!</div>
@@ -157,7 +157,7 @@ async function singleFetch() {
                     <div class="card-key">${key}</div>
                     <div class="card-val">${db[key]}</div>
                 </div>
-                <button class="card-delete-btn" onclick="singleDelete('${key}')">🗑️</button>
+                <button class="card-delete-btn" onclick="singleDelete('${key}')">X</button>
             `;
             listContainer.appendChild(card);
         });
@@ -187,7 +187,7 @@ async function singleSet() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ key, value: val })
         });
-        
+
         const data = await response.json();
         if (response.ok) {
             writeLog(`[Đơn Node] Thành công: ${data.message}`, "success");
@@ -247,7 +247,7 @@ async function singleDelete(key) {
             method: "DELETE"
         });
         const data = await response.json();
-        
+
         if (response.ok) {
             writeLog(`[Đơn Node] Đã xóa khóa "${key}"`, "success");
             singleFetch();
@@ -266,7 +266,7 @@ async function singleTruncate() {
         writeLog(`[Đơn Node] Gửi POST -> ${API_ROUTER}/truncate-db`);
         const response = await fetch(`${API_ROUTER}/truncate-db`, { method: "POST" });
         const data = await response.json();
-        
+
         if (response.ok) {
             writeLog(`[Đơn Node] Đã xóa sạch dữ liệu`, "success");
             singleFetch();
@@ -328,7 +328,7 @@ async function clusterCheckAllStatuses() {
             }
         }
         previousNodeStatuses[node.id] = isOnline;
-        
+
         if (!el) continue;
 
         if (node.id === "node-router") {
@@ -358,7 +358,7 @@ async function clusterCheckAllStatuses() {
 // Tải dữ liệu từ tất cả các nguồn phân tán
 async function clusterFetchAll() {
     const routerOnline = await clusterCheckAllStatuses();
-    
+
     // 1. Tải dữ liệu gộp từ Router Proxy (Location Transparency)
     const clusterList = document.getElementById("cluster-data-list");
     const clusterSize = document.getElementById("cluster-db-size");
@@ -373,7 +373,7 @@ async function clusterFetchAll() {
             </div>
         `;
         if (clusterSize) clusterSize.textContent = "0";
-        
+
         // Set rỗng các cột phân mảnh thô
         const emptyOffline = '<div class="empty-placeholder">Offline</div>';
         const cols = ["s1m-list", "s1s-list", "s2m-list", "s2s-list"];
@@ -391,7 +391,7 @@ async function clusterFetchAll() {
         const data = await res.json();
         const db = data.database || {};
         const keys = Object.keys(db);
-        
+
         if (clusterSize) clusterSize.textContent = keys.length;
 
         if (keys.length === 0) {
@@ -401,19 +401,19 @@ async function clusterFetchAll() {
             keys.forEach(key => {
                 const card = document.createElement("div");
                 card.className = "data-card accent-card";
-                
+
                 // Kiểm tra thuật toán định hướng để gán màu sắc trực quan (chẵn: xanh dương, lẻ: tím)
                 const shardIdx = sumAscii(key) % 2;
                 if (shardIdx === 1) {
                     card.style.borderLeftColor = "var(--purple)";
                 }
-                
+
                 card.innerHTML = `
                     <div>
                         <div class="card-key">${key} <span style="font-size: 0.7rem; color: var(--text-muted)">(${shardIdx === 0 ? "Shard 1" : "Shard 2"})</span></div>
                         <div class="card-val">${db[key]}</div>
                     </div>
-                    <button class="card-delete-btn" onclick="clusterDelete('${key}')">🗑️</button>
+                    <button class="card-delete-btn" onclick="clusterDelete('${key}')">X</button>
                 `;
                 clusterList.appendChild(card);
             });
@@ -605,7 +605,7 @@ async function clusterDelete(key) {
         });
         const isFailover = response.headers.get('X-PupDB-Failover') === 'true';
         const data = await response.json();
-        
+
         if (response.ok) {
             if (isFailover) {
                 writeLog(`⚠️ PHÁT HIỆN SỰ CỐ: Master Shard offline. Router đã chuyển vùng (Failover) xóa trên Slave thành công!`, "warning");
@@ -628,7 +628,7 @@ async function clusterTruncate() {
         writeLog(`[Router] Gửi POST /truncate-db để xóa toàn cụm...`);
         const response = await fetch(`${API_ROUTER}/truncate-db`, { method: "POST" });
         const data = await response.json();
-        
+
         if (response.ok) {
             writeLog(`[Router] Đã dọn sạch toàn cụm thành công`, "success");
             setTimeout(clusterFetchAll, 500);
@@ -685,7 +685,7 @@ function renderRecycleBin() {
     keys.forEach(key => {
         const item = recycleBinCache[key];
         const remainingSecs = Math.max(0, Math.round(120 - (Date.now() / 1000 - item.deleted_at)));
-        
+
         if (remainingSecs <= 0) return;
 
         const card = document.createElement("div");
