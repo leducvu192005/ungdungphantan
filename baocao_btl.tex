@@ -548,9 +548,56 @@ def sync_from_slave_on_startup(db):
                                 db._flush_database_no_lock(slave_db)
             except Exception as e:
                 logging.error("Failed to sync from Slave on startup: %s", str(e))
+
+\subsection{Cơ chế Thùng rác phân tán (Distributed Recycle Bin) bảo vệ dữ liệu xóa chủ động}
+Để đảm bảo an toàn dữ liệu trước các thao tác xóa nhầm chủ động của người dùng (thông qua lệnh \textit{DELETE /remove} hoặc \textit{POST /truncate-db}), chúng tôi phát triển thêm cơ chế \textbf{Thùng rác phân tán (Distributed Recycle Bin)} chạy trên các node Slave. 
+
+Đặc đặc điểm và nguyên lý hoạt động của cơ chế này bao gồm:
+\begin{itemize}
+    \item \textbf{Tách biệt vùng lưu trữ}: Dữ liệu bị xóa chủ động không bị xóa hoàn toàn lập tức mà được di chuyển sang một tệp tin lưu trữ độc lập trên Slave có tên \textit{\{db\_path\}\_recycle.json}. Việc tách biệt này giúp tránh làm thay đổi cấu trúc dữ liệu chính của Active DB và ngăn chặn việc tự động phục hồi các khóa đã xóa có chủ đích khi Master khởi động lại (Startup Sync-Back).
+    \item \textbf{Cơ chế tự động dọn dẹp theo thời gian (TTL)}: Một luồng chạy ngầm phụ (\textit{cleanup thread}) được khởi chạy trên các node Slave. Cứ mỗi 5 giây, luồng này sẽ quét tệp tin thùng rác và tự động hủy bỏ vĩnh viễn các khóa có thời gian xóa (\textit{deleted\_at}) vượt quá 120 giây.
+    \item \textbf{Quy trình Phục hồi dữ liệu (Restore)}: Khi người dùng yêu cầu khôi phục khóa qua API \textit{/restore} tại Router Proxy, Router sẽ định tuyến yêu cầu tới Shard Master tương ứng. Node Master sau đó gửi yêu cầu nội bộ đến Slave (\textit{/restore-internal}), Slave sẽ rút khóa ra khỏi thùng rác và trả lại cho Master. Master cập nhật lại dữ liệu cục bộ và kích hoạt nhân bản bất đồng bộ ghi đè lại Slave, khôi phục khóa về trạng thái hoạt động bình thường.
+\end{itemize}
+
+Dưới đây là mã nguồn cài đặt Endpoint \textit{/restore} trên Master phục vụ quy trình lấy lại dữ liệu từ Slave:
+
+\begin{lstlisting}[language=Python, caption={Endpoint phục hồi dữ liệu từ Thùng rác phân tán trên Master}]
+@APP.route('/restore', methods=['POST'])
+def restore_key_api():
+    key = request.json.get('key')
+    if not key:
+        return {'error': "Missing parameter 'key'"}, 400
+
+    role = os.environ.get('PUPDB_ROLE')
+    if role == 'master':
+        slave_url = os.environ.get('PUPDB_SLAVE_URL')
+        if not slave_url:
+            return {'error': 'No Slave configured'}, 400
+        
+        url = slave_url.rstrip('/') + '/restore-internal'
+        try:
+            payload = json.dumps({'key': key}).encode('utf-8')
+            req = urllib.request.Request(url, method='POST', headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(req, data=payload, timeout=3) as response:
+                resp_json = json.loads(response.read().decode('utf-8'))
+                if 'value' in resp_json:
+                    val = resp_json['value']
+                    DB.set(key, val)
+                    threading.Thread(
+                        target=replicate_to_slave,
+                        args=('POST', '/set', {'key': key, 'value': val})
+                    ).start()
+                    return {'message': 'Key \'{}\' restored successfully.'.format(key)}, 200
+                else:
+                    return {'error': resp_json.get('error', 'Unknown error during restore')}, 400
+        except Exception as e:
+            return {'error': 'Failed to restore from Slave: {}'.format(str(e))}, 502
+    else:
+        return {'error': 'Restore must be called on Master'}, 400
 \end{lstlisting}
 
 \newpage
+
 
 % ==========================================
 % CHƯƠNG 5
