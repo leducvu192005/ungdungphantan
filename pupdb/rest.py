@@ -10,6 +10,7 @@ import urllib.request
 import logging
 import time
 
+# pyrefly: ignore [missing-import]
 from flask import Flask, request, Response, jsonify
 
 from pupdb.core import PupDB
