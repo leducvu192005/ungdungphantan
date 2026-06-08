@@ -25,17 +25,19 @@ def send_request(url, method="GET", data=None):
         return {"error": str(e)}, 500
 
 def get_shard_index(key):
-    """Tính toán shard dựa trên ký tự đầu tiên của khóa giống như router.py."""
+    """Tính toán shard dựa trên tổng mã ASCII các ký tự của khóa."""
     if not key:
         return 0
-    first_char = str(key)[0]
-    return ord(first_char) % 2 # 2 shards
+    total_ascii = sum(ord(c) for c in str(key))
+    return total_ascii % 2 # 2 shards
+
 
 def print_separator(title=""):
     print("\n" + "="*70)
     if title:
         print(f" {title.upper()} ")
         print("="*70)
+
 
 def main():
     print_separator("KỊCH BẢN DEMO HỆ PHÂN TÁN - PUPDB CLUSTER")
@@ -52,22 +54,23 @@ def main():
     print_separator("Bước 1: Data Sharding & Routing")
     
     test_data = {
-        "apple": "Quả táo đỏ ngon",      # ord('a') = 97  -> 97 % 2 = 1 (Shard 2)
-        "banana": "Chuối chín vàng",     # ord('b') = 98  -> 98 % 2 = 0 (Shard 1)
-        "cherry": "Quả anh đào cherry",  # ord('c') = 99  -> 99 % 2 = 1 (Shard 2)
-        "date": "Quả chà là ngọt",       # ord('d') = 100 -> 100 % 2 = 0 (Shard 1)
-        "eggplant": "Cà tím nướng mỡ hành" # ord('e') = 101 -> 101 % 2 = 1 (Shard 2)
+        "apple": "Quả táo đỏ ngon",      # sum = 530 -> 530 % 2 = 0 (Shard 1)
+        "banana": "Chuối chín vàng",     # sum = 609 -> 609 % 2 = 1 (Shard 2)
+        "cherry": "Quả anh đào cherry",  # sum = 653 -> 653 % 2 = 1 (Shard 2)
+        "date": "Quả chà là ngọt",       # sum = 414 -> 414 % 2 = 0 (Shard 1)
+        "eggplant": "Cà tím nướng mỡ hành" # sum = 850 -> 850 % 2 = 0 (Shard 1)
     }
     
     print("1.1. Chúng ta sẽ ghi 5 cặp Key-Value qua cổng Router Proxy (Port 4000):")
-    print("    Router sẽ tự động băm ký tự đầu tiên: ord(Key[0]) % 2")
+    print("    Router sẽ tính tổng mã ASCII của tất cả ký tự trong Key chia lấy dư số Shards:")
     print("    - Nếu kết quả = 0 -> Ghi vào Shard 1 (Port 4001)")
     print("    - Nếu kết quả = 1 -> Ghi vào Shard 2 (Port 4002)\n")
     
     for key, value in test_data.items():
         computed_shard = get_shard_index(key) + 1
-        print(f" -> Chuẩn bị lưu: Key = '{key}' (Ký tự đầu '{key[0]}', mã ASCII={ord(key[0])}).")
-        print(f"    => Công thức: {ord(key[0])} % 2 = {computed_shard - 1} => Thuộc Shard {computed_shard}")
+        ascii_sum = sum(ord(c) for c in key)
+        print(f" -> Chuẩn bị lưu: Key = '{key}' (Tổng mã ASCII={ascii_sum}).")
+        print(f"    => Công thức: {ascii_sum} % 2 = {computed_shard - 1} => Thuộc Shard {computed_shard}")
         
         # Gửi request lên Router Proxy
         url = f"{ROUTER_URL}/set"

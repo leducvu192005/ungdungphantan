@@ -66,6 +66,33 @@ def init_module():
 APP, DB = init_module()
 
 
+def sync_from_slave_on_startup(db):
+    """ Recover state from the configured slave node upon Master startup. """
+    if os.environ.get('PUPDB_ROLE') == 'master':
+        slave_url = os.environ.get('PUPDB_SLAVE_URL')
+        if slave_url:
+            logging.info("Attempting startup synchronization from Slave: %s", slave_url)
+            try:
+                url = slave_url.rstrip('/') + '/dumps'
+                req = urllib.request.Request(url, method='GET')
+                with urllib.request.urlopen(req, timeout=3) as response:
+                    resp_data = response.read()
+                    resp_json = json.loads(resp_data.decode('utf-8'))
+                    if 'database' in resp_json:
+                        slave_db = resp_json['database']
+                        if slave_db:
+                            logging.info("Synchronizing data from Slave. Overwriting Master DB with %s keys.", len(slave_db))
+                            with db.process_lock:
+                                db._flush_database_no_lock(slave_db)
+                        else:
+                            logging.info("Slave database is empty. No startup sync required.")
+            except Exception as e:
+                logging.error("Failed to sync from Slave on startup: %s", str(e))
+
+
+sync_from_slave_on_startup(DB)
+
+
 @APP.route('/', methods=['GET'])
 def index():
     """ Serves the dashboard HTML file. """

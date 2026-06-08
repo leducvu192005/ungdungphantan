@@ -9,7 +9,7 @@ import urllib.parse
 import urllib.error
 import logging
 
-from flask import Flask, request, Response, jsonify
+from flask import Flask, request, Response, jsonify, g
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,38 +67,60 @@ def get_shards():
     return ['http://127.0.0.1:4001', 'http://127.0.0.1:4002']
 
 
+def get_shard_slaves_map():
+    """ Returns a mapping of Master Shard URL to Slave Shard URL. """
+    shards = get_shards()
+    slaves_env = os.environ.get('PUPDB_SLAVES')
+    if slaves_env:
+        slaves = [s.strip() for s in slaves_env.split(',') if s.strip()]
+    else:
+        # Default fallback corresponding to default master shards
+        slaves = ['http://127.0.0.1:4011', 'http://127.0.0.1:4012']
+
+    mapping = {}
+    for i, master_url in enumerate(shards):
+        if i < len(slaves):
+            mapping[master_url] = slaves[i]
+    return mapping
+
+
 def get_shard_url(key, shards):
-    """ Hashes the key using its first character's ASCII value to select a shard. """
+    """ Hashes the key using sum of its characters' ASCII values to select a shard. """
     if not key or not shards:
         return None
-    first_char = str(key)[0]
-    index = ord(first_char) % len(shards)
+    total_ascii = sum(ord(c) for c in str(key))
+    index = total_ascii % len(shards)
     return shards[index]
 
 
+def _do_forward(url, method, headers=None, data=None):
+    """ Performs the actual HTTP request forwarding. """
+    req = urllib.request.Request(url, method=method)
+    if headers:
+        for k, v in headers.items():
+            if k.lower() in ('host', 'content-length'):
+                continue
+            req.add_header(k, v)
+
+    if data is not None:
+        if not req.get_header('Content-Type'):
+            req.add_header('Content-Type', 'application/json')
+        req.data = data
+
+    with urllib.request.urlopen(req, timeout=10) as response:
+        status_code = response.status
+        resp_data = response.read()
+        try:
+            resp_json = json.loads(resp_data.decode('utf-8'))
+            return resp_json, status_code
+        except Exception:
+            return resp_data.decode('utf-8'), status_code
+
+
 def forward_request(url, method, headers=None, data=None):
-    """ Forwards the HTTP request to the selected shard and returns (response, status_code). """
+    """ Forwards the HTTP request to the selected shard, falling back to its Slave if Master is down. """
     try:
-        req = urllib.request.Request(url, method=method)
-        if headers:
-            for k, v in headers.items():
-                if k.lower() in ('host', 'content-length'):
-                    continue
-                req.add_header(k, v)
-
-        if data is not None:
-            if not req.get_header('Content-Type'):
-                req.add_header('Content-Type', 'application/json')
-            req.data = data
-
-        with urllib.request.urlopen(req, timeout=10) as response:
-            status_code = response.status
-            resp_data = response.read()
-            try:
-                resp_json = json.loads(resp_data.decode('utf-8'))
-                return resp_json, status_code
-            except Exception:
-                return resp_data.decode('utf-8'), status_code
+        return _do_forward(url, method, headers, data)
     except urllib.error.HTTPError as e:
         try:
             err_data = e.read()
@@ -107,6 +129,27 @@ def forward_request(url, method, headers=None, data=None):
         except Exception:
             return {'error': e.reason}, e.code
     except Exception as e:
+        # Connection failed, try failover to slave
+        slaves_map = get_shard_slaves_map()
+        for master_url, slave_url in slaves_map.items():
+            if url.startswith(master_url):
+                fallback_url = url.replace(master_url, slave_url, 1)
+                logging.warning("Master node down: %s. Failing over to Slave: %s", url, fallback_url)
+                try:
+                    g.pupdb_failover = True
+                except Exception:
+                    pass
+                try:
+                    return _do_forward(fallback_url, method, headers, data)
+                except urllib.error.HTTPError as he:
+                    try:
+                        err_data = he.read()
+                        err_json = json.loads(err_data.decode('utf-8'))
+                        return err_json, he.code
+                    except Exception:
+                        return {'error': he.reason}, he.code
+                except Exception as fallback_err:
+                    return {'error': 'Both Master and Slave failed. Master error: {}, Slave error: {}'.format(str(e), str(fallback_err))}, 502
         return {'error': 'Router error: {}'.format(str(e))}, 500
 
 
@@ -259,4 +302,12 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS'
+    
+    try:
+        if getattr(g, 'pupdb_failover', False):
+            response.headers['X-PupDB-Failover'] = 'true'
+            response.headers['Access-Control-Expose-Headers'] = 'X-PupDB-Failover'
+    except Exception:
+        pass
+        
     return response

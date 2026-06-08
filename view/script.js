@@ -74,9 +74,10 @@ function switchTab(tabId) {
 async function pingPort(url) {
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1000); // 1s timeout
+        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout
         
-        const response = await fetch(`${url}/keys`, { 
+        // Gửi request đến root '/' thay vì '/keys' để tránh việc gọi chéo phân tán gây chậm trễ khi có node sập
+        const response = await fetch(`${url}/`, { 
             method: "GET",
             signal: controller.signal
         });
@@ -277,10 +278,20 @@ async function singleTruncate() {
 
 // ==================== 2. XỬ LÝ CHO CHẾ ĐỘ CỤM PHÂN TÁN ====================
 
+// Trạng thái kết nối trước đó của các node để phát hiện thay đổi (phục hồi / sập)
+const previousNodeStatuses = {};
+const nodeLabels = {
+    "node-router": "Router Proxy",
+    "node-shard1-master": "Shard 1 Master",
+    "node-shard1-slave": "Shard 1 Slave",
+    "node-shard2-master": "Shard 2 Master",
+    "node-shard2-slave": "Shard 2 Slave"
+};
+
 // Kiểm tra trạng thái của tất cả 5 node trong cụm và cập nhật sơ đồ topology
 async function clusterCheckAllStatuses() {
     const nodes = [
-        { id: "node-router", url: API_ROUTER, label: "Router Proxy (4000)" },
+        { id: "node-router", url: API_ROUTER, dotId: null },
         { id: "node-shard1-master", url: API_S1M, dotId: "s1m-dot" },
         { id: "node-shard1-slave", url: API_S1S, dotId: "s1s-dot" },
         { id: "node-shard2-master", url: API_S2M, dotId: "s2m-dot" },
@@ -292,6 +303,28 @@ async function clusterCheckAllStatuses() {
     for (const node of nodes) {
         const isOnline = await pingPort(node.url);
         const el = document.getElementById(node.id);
+        const label = nodeLabels[node.id] || node.id;
+
+        // Phát hiện thay đổi trạng thái kết nối để ghi nhận vào Web Terminal Console
+        const prevStatus = previousNodeStatuses[node.id];
+        if (prevStatus !== undefined && prevStatus !== isOnline) {
+            if (isOnline) {
+                writeLog(`🟢 Kết nối phục hồi: Nút ${label} hoạt động trở lại (Online).`, "success");
+                if (node.id.includes("master")) {
+                    writeLog(`🔄 TỰ ĐỘNG ĐỒNG BỘ: ${label} kích hoạt Sync-Back dữ liệu từ Slave...`, "info");
+                    setTimeout(() => {
+                        writeLog(`✅ ĐỒNG BỘ THÀNH CÔNG: ${label} đã lấy đủ dữ liệu mới và phục hồi nhất quán dữ liệu!`, "success");
+                        clusterFetchAll();
+                    }, 1500);
+                }
+            } else {
+                writeLog(`🔴 CẢNH BÁO SỰ CỐ: Nút ${label} đã mất kết nối (Offline)!`, "error");
+                if (node.id.includes("master")) {
+                    writeLog(`⚠️ Chế độ dự phòng (Failover) được kích hoạt: Router Proxy sẽ chuyển tiếp đọc/ghi tới Slave.`, "warning");
+                }
+            }
+        }
+        previousNodeStatuses[node.id] = isOnline;
         
         if (!el) continue;
 
@@ -367,8 +400,7 @@ async function clusterFetchAll() {
                 card.className = "data-card accent-card";
                 
                 // Kiểm tra thuật toán định hướng để gán màu sắc trực quan (chẵn: xanh dương, lẻ: tím)
-                const firstChar = String(key)[0];
-                const shardIdx = ord(firstChar) % 2;
+                const shardIdx = sumAscii(key) % 2;
                 if (shardIdx === 1) {
                     card.style.borderLeftColor = "var(--purple)";
                 }
@@ -431,6 +463,15 @@ function ord(str) {
     return str.charCodeAt(0);
 }
 
+// Tính tổng mã ASCII của tất cả ký tự trong chuỗi
+function sumAscii(str) {
+    let sum = 0;
+    for (let i = 0; i < str.length; i++) {
+        sum += str.charCodeAt(i);
+    }
+    return sum;
+}
+
 // Ghi dữ liệu qua Router Proxy
 async function clusterSet() {
     const keyInput = document.getElementById("cluster-set-key");
@@ -446,9 +487,8 @@ async function clusterSet() {
         return;
     }
 
-    const firstChar = String(key)[0];
-    const ascii = ord(firstChar);
-    const shardIdx = ascii % 2;
+    const asciiSum = sumAscii(key);
+    const shardIdx = asciiSum % 2;
     const targetPort = shardIdx === 0 ? S1M_PORT : S2M_PORT;
     const slavePort = shardIdx === 0 ? S1S_PORT : S2S_PORT;
 
@@ -456,8 +496,8 @@ async function clusterSet() {
     explainBox.style.color = "var(--primary)";
     explainBox.innerHTML = `
         <div><strong>ĐỊNH TUYẾN GHI (WRITE ROUTE):</strong></div>
-        <div>Khóa: <code>"${key}"</code> → Ký tự đầu: <code>'${firstChar}'</code> (ASCII: <code>${ascii}</code>)</div>
-        <div>Công thức: <code>${ascii} % 2 (Shards) = ${shardIdx}</code></div>
+        <div>Khóa: <code>"${key}"</code> ➔ Tổng mã ASCII: <code>${asciiSum}</code></div>
+        <div>Công thức: <code>${asciiSum} % 2 (Shards) = ${shardIdx}</code></div>
         <div>➔ Chuyển tiếp tới <strong>Shard ${shardIdx + 1} Master</strong> (Cổng ${targetPort})</div>
         <div>➔ Đồng bộ ngầm sang <strong>Shard ${shardIdx + 1} Slave</strong> (Cổng ${slavePort})</div>
     `;
@@ -470,8 +510,12 @@ async function clusterSet() {
             body: JSON.stringify({ key, value: val })
         });
 
+        const isFailover = response.headers.get('X-PupDB-Failover') === 'true';
         const data = await response.json();
         if (response.ok) {
+            if (isFailover) {
+                writeLog(`⚠️ PHÁT HIỆN SỰ CỐ: Master Shard offline. Router đã chuyển vùng (Failover) ghi sang Slave thành công!`, "warning");
+            }
             writeLog(`[Router] Phản hồi: ${data.message}`, "success");
             keyInput.value = "";
             valInput.value = "";
@@ -498,25 +542,29 @@ async function clusterGet() {
         return;
     }
 
-    const firstChar = String(key)[0];
-    const ascii = ord(firstChar);
-    const shardIdx = ascii % 2;
+    const asciiSum = sumAscii(key);
+    const shardIdx = asciiSum % 2;
     const targetPort = shardIdx === 0 ? S1M_PORT : S2M_PORT;
 
     explainBox.style.color = "var(--accent)";
     explainBox.innerHTML = `
         <div><strong>ĐỊNH TUYẾN ĐỌC (READ ROUTE):</strong></div>
-        <div>Khóa: <code>"${key}"</code> → Ký tự đầu: <code>'${firstChar}'</code> (ASCII: <code>${ascii}</code>)</div>
-        <div>Công thức: <code>${ascii} % 2 = ${shardIdx}</code></div>
+        <div>Khóa: <code>"${key}"</code> ➔ Tổng mã ASCII: <code>${asciiSum}</code></div>
+        <div>Công thức: <code>${asciiSum} % 2 = ${shardIdx}</code></div>
         <div>➔ Định hướng đọc trực tiếp từ <strong>Shard ${shardIdx + 1} Master</strong> (Cổng ${targetPort})</div>
     `;
 
     try {
         writeLog(`[Router] Gửi GET /get?key=${key} -> Router (Cổng 4000)`);
         const response = await fetch(`${API_ROUTER}/get?key=${encodeURIComponent(key)}`);
+        const isFailover = response.headers.get('X-PupDB-Failover') === 'true';
         const data = await response.json();
 
         if (response.ok && data.value !== null && data.value !== undefined) {
+            if (isFailover) {
+                writeLog(`⚠️ PHÁT HIỆN SỰ CỐ: Master Shard offline. Router đã chuyển vùng (Failover) đọc từ Slave thành công!`, "warning");
+                explainBox.innerHTML += `<div style="color: var(--warning); margin-top: 5px;">⚠️ <strong>Failover:</strong> Đọc thành công từ Shard Slave!</div>`;
+            }
             explainBox.innerHTML += `<div style="color: var(--primary); margin-top: 5px;"><strong>Kết quả:</strong> Found <code>"${key}"</code> = <code>"${data.value}"</code></div>`;
             writeLog(`[Router] Tìm thấy: "${key}" = "${data.value}"`, "success");
         } else {
@@ -532,9 +580,8 @@ async function clusterGet() {
 async function clusterDelete(key) {
     if (!confirm(`Xóa khóa "${key}" trên Cụm Phân Tán?`)) return;
 
-    const firstChar = String(key)[0];
-    const ascii = ord(firstChar);
-    const shardIdx = ascii % 2;
+    const asciiSum = sumAscii(key);
+    const shardIdx = asciiSum % 2;
     const targetPort = shardIdx === 0 ? S1M_PORT : S2M_PORT;
 
     const explainBox = document.getElementById("cluster-explain-box");
@@ -542,7 +589,7 @@ async function clusterDelete(key) {
         explainBox.style.color = "var(--danger)";
         explainBox.innerHTML = `
             <div><strong>ĐỊNH TUYẾN XÓA (DELETE ROUTE):</strong></div>
-            <div>Khóa: <code>"${key}"</code> → ASCII Ký tự đầu: <code>${ascii}</code> (% 2 = <code>${shardIdx}</code>)</div>
+            <div>Khóa: <code>"${key}"</code> ➔ Tổng mã ASCII: <code>${asciiSum}</code> (% 2 = <code>${shardIdx}</code>)</div>
             <div>➔ Gửi lệnh DELETE đến <strong>Shard ${shardIdx + 1} Master</strong> (Cổng ${targetPort})</div>
         `;
     }
@@ -552,9 +599,13 @@ async function clusterDelete(key) {
         const response = await fetch(`${API_ROUTER}/remove/${encodeURIComponent(key)}`, {
             method: "DELETE"
         });
+        const isFailover = response.headers.get('X-PupDB-Failover') === 'true';
         const data = await response.json();
         
         if (response.ok) {
+            if (isFailover) {
+                writeLog(`⚠️ PHÁT HIỆN SỰ CỐ: Master Shard offline. Router đã chuyển vùng (Failover) xóa trên Slave thành công!`, "warning");
+            }
             writeLog(`[Router] Đã xóa khóa "${key}"`, "success");
             setTimeout(clusterFetchAll, 500);
         } else {

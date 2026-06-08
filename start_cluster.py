@@ -110,7 +110,8 @@ def main():
             module="router", 
             port=4000, 
             env_vars={
-                "PUPDB_SHARDS": "http://127.0.0.1:4001,http://127.0.0.1:4002"
+                "PUPDB_SHARDS": "http://127.0.0.1:4001,http://127.0.0.1:4002",
+                "PUPDB_SLAVES": "http://127.0.0.1:4011,http://127.0.0.1:4012"
             }, 
             name="Router Proxy"
         )
@@ -126,12 +127,14 @@ def main():
         print(" * Nhấn Ctrl+C để dừng toàn bộ hệ thống cluster.")
         print("="*50 + "\n")
         
+        reported_stopped = set()
         while True:
             time.sleep(1)
             # Kiểm tra trạng thái các tiến trình con
             for p, name, port, _ in processes:
-                if p.poll() is not None:
+                if p.poll() is not None and name not in reported_stopped:
                     print(f"[CẢNH BÁO] {name} (cổng {port}) đã dừng đột ngột!")
+                    reported_stopped.add(name)
                     
     except KeyboardInterrupt:
         print("\nĐang dừng hệ thống cluster...")

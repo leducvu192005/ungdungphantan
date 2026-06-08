@@ -79,6 +79,19 @@ def run_router_server(port, shards):
     APP.run(port=port, debug=False, use_reloader=False)
 
 
+def run_router_server_with_slaves(port, shards, slaves):
+    """ Target to run Router proxy server with configured slaves. """
+    os.environ['PUPDB_SHARDS'] = ','.join(shards)
+    os.environ['PUPDB_SLAVES'] = ','.join(slaves)
+
+    # Suppress flask logs to keep test output clean
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
+
+    from pupdb.router import APP
+    APP.run(port=port, debug=False, use_reloader=False)
+
+
 def make_http_request(url, method='GET', data=None):
     """ Helper to make synchronous HTTP requests to our test servers. """
     req = urllib.request.Request(url, method=method)
@@ -239,9 +252,9 @@ def test_distributed_sharding_router():
         wait_for_port(shard2_port)
         wait_for_port(router_port)
 
-        # Determine shard indexing: ord(key[0]) % 2
-        # Key 'B': ord('B') = 66 -> 66 % 2 = 0 -> Shard 1 (26001)
-        # Key 'A': ord('A') = 65 -> 65 % 2 = 1 -> Shard 2 (26002)
+        # Determine shard indexing: sum(ord(c) for c in key) % 2
+        # Key 'B_key': 66 + 95 + 107 + 101 + 121 = 490 -> 490 % 2 = 0 -> Shard 1 (26001)
+        # Key 'A_key': 65 + 95 + 107 + 101 + 121 = 489 -> 489 % 2 = 1 -> Shard 2 (26002)
 
         # 1. Set key 'B' on Router
         res, status = make_http_request(
@@ -345,3 +358,117 @@ def test_distributed_sharding_router():
         s1_proc.join()
         s2_proc.join()
         clean_db_files(shard1_db, shard2_db)
+
+
+def test_failover_and_failback_sync_back():
+    """ Tests that the Router automatically fails over to the Slave when Master is down, and Master syncs back upon restart. """
+    master_db = 'master_failover_db.json'
+    slave_db = 'slave_failover_db.json'
+
+    master_port = 27001
+    slave_port = 27011
+    router_port = 27000
+
+    clean_db_files(master_db, slave_db)
+
+    # Start Slave Node
+    slave_proc = multiprocessing.Process(
+        target=run_slave_server,
+        args=(slave_db, slave_port)
+    )
+    slave_proc.daemon = True
+    slave_proc.start()
+
+    # Start Master Node
+    master_proc = multiprocessing.Process(
+        target=run_master_server,
+        args=(master_db, master_port, 'http://127.0.0.1:{}'.format(slave_port))
+    )
+    master_proc.daemon = True
+    master_proc.start()
+
+    # Start Router
+    shards_list = ['http://127.0.0.1:{}'.format(master_port)]
+    slaves_list = ['http://127.0.0.1:{}'.format(slave_port)]
+    router_proc = multiprocessing.Process(
+        target=run_router_server_with_slaves,
+        args=(router_port, shards_list, slaves_list)
+    )
+    router_proc.daemon = True
+    router_proc.start()
+
+    try:
+        # Wait for all nodes to be ready
+        wait_for_port(slave_port)
+        wait_for_port(master_port)
+        wait_for_port(router_port)
+
+        # 1. Normal state: write via Router
+        res, status = make_http_request(
+            'http://127.0.0.1:{}/set'.format(router_port),
+            'POST',
+            {'key': 'k1', 'value': 'v1'}
+        )
+        assert status == 200
+
+        # Wait for replication
+        time.sleep(0.3)
+
+        # Verify key exists on both Master and Slave
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=k1'.format(master_port))
+        assert res['value'] == 'v1'
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=k1'.format(slave_port))
+        assert res['value'] == 'v1'
+
+        # 2. Simulate Master crash
+        master_proc.terminate()
+        master_proc.join()
+
+        # 3. Write via Router while Master is down (Failover to Slave)
+        res, status = make_http_request(
+            'http://127.0.0.1:{}/set'.format(router_port),
+            'POST',
+            {'key': 'k2', 'value': 'v2_written_to_slave'}
+        )
+        assert status == 200
+
+        # Read via Router while Master is down (Failover to Slave)
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=k2'.format(router_port))
+        assert status == 200
+        assert res['value'] == 'v2_written_to_slave'
+
+        # Verify it went directly to Slave
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=k2'.format(slave_port))
+        assert res['value'] == 'v2_written_to_slave'
+
+        # 4. Restart Master Node (Failback & Sync-Back)
+        master_proc = multiprocessing.Process(
+            target=run_master_server,
+            args=(master_db, master_port, 'http://127.0.0.1:{}'.format(slave_port))
+        )
+        master_proc.daemon = True
+        master_proc.start()
+        wait_for_port(master_port)
+
+        # Wait for startup synchronization to execute
+        time.sleep(0.5)
+
+        # Verify Master has synced the new key (k2) from Slave on startup
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=k2'.format(master_port))
+        assert status == 200
+        assert res['value'] == 'v2_written_to_slave'
+
+        # 5. Read via Router again: should route to Master and find k2
+        res, status = make_http_request('http://127.0.0.1:{}/get?key=k2'.format(router_port))
+        assert status == 200
+        assert res['value'] == 'v2_written_to_slave'
+
+    finally:
+        router_proc.terminate()
+        if master_proc.is_alive():
+            master_proc.terminate()
+            master_proc.join()
+        slave_proc.terminate()
+        router_proc.join()
+        slave_proc.join()
+        clean_db_files(master_db, slave_db)
