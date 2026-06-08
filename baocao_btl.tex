@@ -754,6 +754,8 @@ Thông qua việc nghiên cứu, cài đặt và nâng cấp thành công thư v
     \item Nắm vững các nguyên lý hoạt động cơ bản của hệ quản trị cơ sở dữ liệu dạng Khóa - Giá trị (NoSQL Key-Value Store).
     \item Tự thiết kế và cài đặt thành công cơ chế phân mảnh ngang dữ liệu (Horizontal Sharding) trên máy chủ Router Proxy điều phối trung tâm.
     \item Triển khai hoàn chỉnh tính năng nhân bản bất đồng bộ dữ liệu (Asynchronous Replication) theo mô hình Active-Passive Master-Slave nhằm bảo đảm tính sẵn sàng cao của hệ thống.
+    \item Phát triển thành công tính năng Thùng rác phân tán (Distributed Recycle Bin) giúp lưu trữ an toàn dữ liệu xóa chủ động với cơ chế tự hủy theo thời gian (TTL = 120 giây) trên Slave.
+    \item Thiết kế và triển khai giao diện quản trị đồ họa trực quan (Web Dashboard Platform) hiển thị thời gian thực trạng thái hoạt động (Health check) của các phân mảnh, công cụ giải thích định tuyến (Routing Explain) và hỗ trợ quản lý phục hồi dữ liệu từ Thùng rác.
     \item Xây dựng các kịch bản chạy thử nghiệm thực tế tự động hóa trực quan và viết bộ kiểm thử tự động đảm bảo chất lượng phần mềm.
     \item Áp dụng thành công quy trình quản lý dự án cộng tác phát triển phần mềm qua GitHub.
 \end{itemize}
@@ -766,7 +768,7 @@ Mặc dù PupDB Cluster đã hoạt động ổn định và đáp ứng tốt c
 \begin{enumerate}
     \item \textbf{Đồng thuận phân tán phi tập trung (Decentralized Consensus)}: Tích hợp các thuật toán đồng thuận chuẩn như Raft hoặc Paxos thay vì cơ chế chuyển vùng tĩnh (Failover/Sync-Back) hiện tại của nhóm. Điều này giúp hệ thống tự động bầu chọn Leader mới, tự động phát hiện sập nguồn thông qua cơ chế nhịp tim (Heartbeat) và cập nhật động cấu hình phân mảnh Shards mà không phụ thuộc vào ánh xạ cố định.
     \item \textbf{Tối ưu hóa thuật toán định tuyến}: Thay thế phép chia dư mã ASCII ký tự đầu tiên bằng kỹ thuật băm nhất quán (\textit{Consistent Hashing}) kết hợp nút ảo để phân bổ dữ liệu đồng đều tối đa trên vòng băm, tránh hiện tượng thắt nút cổ chai tại một shard đơn lẻ.
-    \item \textbf{Giao diện quản trị đồ họa (Web Dashboard)}: Phát triển một trang dashboard quản trị hiển thị trực quan trạng thái sống/chết (Health check) của từng node trong cụm và biểu đồ giám sát lượng truy cập đọc/ghi theo thời gian thực.
+    \item \textbf{Nâng cấp giao diện quản trị đồ họa (Web Dashboard)}: Tích hợp thêm biểu đồ giám sát hiệu năng truy cập đọc/ghi dạng đồ thị thời gian thực (Throughput/Latency charts) và bổ sung hiển thị các chỉ số tài nguyên phần cứng (CPU, RAM, Disk) của từng node trong cụm.
 \end{enumerate}
 
 \newpage
