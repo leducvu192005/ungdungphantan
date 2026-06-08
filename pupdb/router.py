@@ -1,4 +1,244 @@
 """
+    This module represent the RESTful HTTP interface to PupDB.
+"""
+
+import os
+import json
+import traceback
+import threading
+import urllib.request
+import logging
+
+# pyrefly: ignore [missing-import]
+from flask import Flask, request, Response, jsonify
+
+from pupdb.core import PupDB
+
+
+def replicate_to_slave(method, url_path, data=None):
+    """ Helper function to replicate set/remove operation to slave node asynchronously. """
+    slave_url = os.environ.get('PUPDB_SLAVE_URL')
+    if not slave_url:
+        return
+
+    # Formulate URL
+    base_url = slave_url.rstrip('/')
+    url = base_url + url_path
+
+    try:
+        req = urllib.request.Request(url, method=method)
+        if data is not None:
+            req.add_header('Content-Type', 'application/json')
+            req.data = json.dumps(data).encode('utf-8')
+
+        with urllib.request.urlopen(req, timeout=5) as response:
+            response.read()
+    except Exception as e:
+        logging.error('Error during replication to slave: %s', str(e))
+
+
+
+# pylint: disable=too-many-ancestors
+class CustomResponse(Response):
+    """ Custom Response Class for the Flask Application. """
+
+    # pylint: disable=arguments-differ
+    @classmethod
+    def force_type(cls, rv, environ=None):
+        """ Overriden method to jsonify payload. """
+        if isinstance(rv, dict):
+            rv = jsonify(rv)
+        return super(CustomResponse, cls).force_type(rv, environ)
+
+
+def init_module():
+    """ Initializes the Flask App. """
+
+    dirpath = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(dirpath)
+    view_dir = os.path.join(project_root, 'view')
+
+    app = Flask(__name__, static_folder=view_dir, static_url_path='')
+    app.response_class = CustomResponse
+    database = PupDB(os.environ.get('PUPDB_FILE_PATH') or 'pupdb.json')
+    return app, database
+
+
+APP, DB = init_module()
+
+
+def sync_from_slave_on_startup(db):
+    """ Recover state from the configured slave node upon Master startup. """
+    if os.environ.get('PUPDB_ROLE') == 'master':
+        slave_url = os.environ.get('PUPDB_SLAVE_URL')
+        if slave_url:
+            logging.info("Attempting startup synchronization from Slave: %s", slave_url)
+            try:
+                url = slave_url.rstrip('/') + '/dumps'
+                req = urllib.request.Request(url, method='GET')
+                with urllib.request.urlopen(req, timeout=3) as response:
+                    resp_data = response.read()
+                    resp_json = json.loads(resp_data.decode('utf-8'))
+                    if 'database' in resp_json:
+                        slave_db = resp_json['database']
+                        if slave_db:
+                            logging.info("Synchronizing data from Slave. Overwriting Master DB with %s keys.", len(slave_db))
+                            with db.process_lock:
+                                db._flush_database_no_lock(slave_db)
+                        else:
+logging.info("Slave database is empty. No startup sync required.")
+            except Exception as e:
+                logging.error("Failed to sync from Slave on startup: %s", str(e))
+
+
+sync_from_slave_on_startup(DB)
+
+
+@APP.route('/', methods=['GET'])
+def index():
+    """ Serves the dashboard HTML file. """
+    try:
+        dirpath = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(dirpath)
+        html_path = os.path.join(project_root, 'view', 'dashboard.html')
+        with open(html_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return content, 200, {'Content-Type': 'text/html; charset=utf-8'}
+    except Exception as e:
+        return 'Dashboard HTML not found or error loading: {}'.format(str(e)), 500
+
+
+@APP.route('/get', methods=['GET'])
+def db_get():
+    """ Endpoint Function to interact with PupDB's get() method. """
+
+    key = request.args.get('key')
+    if not key:
+        return {'error': 'Missing parameter \'key\''}, 400
+    return {'key': key, 'value': DB.get(key)}, 200
+
+
+@APP.route('/set', methods=['POST'])
+def db_set():
+    """ Endpoint Function to interact with PupDB's set() method. """
+
+    try:
+        key = request.json.get('key')
+        value = request.json.get('value')
+        if not key:
+            return {'error': 'Missing parameter \'key\''}, 400
+        if not value:
+            return {'error': 'Missing parameter \'value\''}, 400
+
+        result = DB.set(key, value)
+
+        if result:
+            if os.environ.get('PUPDB_ROLE') == 'master':
+                threading.Thread(
+                    target=replicate_to_slave,
+                    args=('POST', '/set', {'key': key, 'value': value})
+                ).start()
+            return {
+                'message': 'Key \'{}\' set to Value \'{}\''.format(key, value)
+            }, 200
+        return {
+            'error':
+            'There was a problem saving ({}, {}) to the DB.'.format(
+                key, value
+            )
+        }, 400
+    except Exception:
+        return {'error': 'Unable to process this request.'}, 422
+
+
+@APP.route('/remove/<key>', methods=['DELETE'])
+def db_remove(key):
+    """ Endpoint Function to interact with PupDB's remove() method. """
+
+    try:
+        if not key:
+            return {'error': 'Missing parameter \'key\''}, 400
+
+        try:
+            result = DB.remove(key)
+        except KeyError as key_err:
+            return {'error': str(key_err)[1:-1]}, 404
+
+        if result:
+            if os.environ.get('PUPDB_ROLE') == 'master':
+                threading.Thread(
+                    target=replicate_to_slave,
+                    args=('DELETE', '/remove/{}'.format(key))
+                ).start()
+            return {
+                'message': 'Key \'{}\' removed from DB.'.format(key)
+            }, 200
+
+        return {
+            'error':
+            'There was a problem removing Key \'{}\' from the DB.'.format(key)
+        }, 400
+    except Exception:
+        return {
+'error':
+                'Unable to process this request. Details: %s' %
+                traceback.format_exc(),
+        }, 422
+
+
+@APP.route('/keys', methods=['GET'])
+def db_keys():
+    """ Endpoint Function to interact with PupDB's keys() method. """
+
+    return {'keys': list(DB.keys())}, 200
+
+
+@APP.route('/values', methods=['GET'])
+def db_values():
+    """ Endpoint Function to interact with PupDB's values() method. """
+
+    return {'values': list(DB.values())}, 200
+
+
+@APP.route('/items', methods=['GET'])
+def db_items():
+    """ Endpoint Function to interact with PupDB's items() method. """
+
+    return {'items': [list(item) for item in DB.items()]}, 200
+
+
+@APP.route('/dumps', methods=['GET'])
+def db_dumps():
+    """ Endpoint Function to interact with PupDB's dumps() method. """
+
+    return {'database': json.loads(DB.dumps())}, 200
+
+
+@APP.route('/truncate-db', methods=['POST'])
+def db_truncate():
+    """ Endpoint Function to interact with PupDB's truncate_db() method. """
+
+    result = DB.truncate_db()
+
+    if result:
+        return {
+            'message': 'DB has been truncated successfully.'
+        }, 200
+
+    return {
+        'error': 'There was a problem truncating the DB.'
+    }, 400
+
+
+@APP.after_request
+def add_cors_headers(response):
+    """ Allow cross-origin requests for dashboard integration. """
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS'
+    return response
+rest.py
+"""
     This module represents the distributed sharding router proxy for PupDB.
 """
 
@@ -9,7 +249,7 @@ import urllib.parse
 import urllib.error
 import logging
 
-from flask import Flask, request, Response, jsonify
+from flask import Flask, request, Response, jsonify, g
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,38 +307,60 @@ def get_shards():
     return ['http://127.0.0.1:4001', 'http://127.0.0.1:4002']
 
 
+def get_shard_slaves_map():
+    """ Returns a mapping of Master Shard URL to Slave Shard URL. """
+    shards = get_shards()
+    slaves_env = os.environ.get('PUPDB_SLAVES')
+    if slaves_env:
+        slaves = [s.strip() for s in slaves_env.split(',') if s.strip()]
+    else:
+        # Default fallback corresponding to default master shards
+        slaves = ['http://127.0.0.1:4011', 'http://127.0.0.1:4012']
+
+    mapping = {}
+    for i, master_url in enumerate(shards):
+        if i < len(slaves):
+            mapping[master_url] = slaves[i]
+    return mapping
+
+
 def get_shard_url(key, shards):
-    """ Hashes the key using its first character's ASCII value to select a shard. """
+    """ Hashes the key using sum of its characters' ASCII values to select a shard. """
     if not key or not shards:
         return None
-    first_char = str(key)[0]
-    index = ord(first_char) % len(shards)
+    total_ascii = sum(ord(c) for c in str(key))
+    index = total_ascii % len(shards)
     return shards[index]
 
 
+def _do_forward(url, method, headers=None, data=None):
+    """ Performs the actual HTTP request forwarding. """
+req = urllib.request.Request(url, method=method)
+    if headers:
+        for k, v in headers.items():
+            if k.lower() in ('host', 'content-length'):
+                continue
+            req.add_header(k, v)
+
+    if data is not None:
+        if not req.get_header('Content-Type'):
+            req.add_header('Content-Type', 'application/json')
+        req.data = data
+
+    with urllib.request.urlopen(req, timeout=10) as response:
+        status_code = response.status
+        resp_data = response.read()
+        try:
+            resp_json = json.loads(resp_data.decode('utf-8'))
+            return resp_json, status_code
+        except Exception:
+            return resp_data.decode('utf-8'), status_code
+
+
 def forward_request(url, method, headers=None, data=None):
-    """ Forwards the HTTP request to the selected shard and returns (response, status_code). """
+    """ Forwards the HTTP request to the selected shard, falling back to its Slave if Master is down. """
     try:
-        req = urllib.request.Request(url, method=method)
-        if headers:
-            for k, v in headers.items():
-                if k.lower() in ('host', 'content-length'):
-                    continue
-                req.add_header(k, v)
-
-        if data is not None:
-            if not req.get_header('Content-Type'):
-                req.add_header('Content-Type', 'application/json')
-            req.data = data
-
-        with urllib.request.urlopen(req, timeout=10) as response:
-            status_code = response.status
-            resp_data = response.read()
-            try:
-                resp_json = json.loads(resp_data.decode('utf-8'))
-                return resp_json, status_code
-            except Exception:
-                return resp_data.decode('utf-8'), status_code
+        return _do_forward(url, method, headers, data)
     except urllib.error.HTTPError as e:
         try:
             err_data = e.read()
@@ -107,6 +369,27 @@ def forward_request(url, method, headers=None, data=None):
         except Exception:
             return {'error': e.reason}, e.code
     except Exception as e:
+        # Connection failed, try failover to slave
+        slaves_map = get_shard_slaves_map()
+        for master_url, slave_url in slaves_map.items():
+            if url.startswith(master_url):
+                fallback_url = url.replace(master_url, slave_url, 1)
+                logging.warning("Master node down: %s. Failing over to Slave: %s", url, fallback_url)
+                try:
+                    g.pupdb_failover = True
+                except Exception:
+                    pass
+                try:
+                    return _do_forward(fallback_url, method, headers, data)
+                except urllib.error.HTTPError as he:
+                    try:
+                        err_data = he.read()
+                        err_json = json.loads(err_data.decode('utf-8'))
+                        return err_json, he.code
+                    except Exception:
+                        return {'error': he.reason}, he.code
+                except Exception as fallback_err:
+                    return {'error': 'Both Master and Slave failed. Master error: {}, Slave error: {}'.format(str(e), str(fallback_err))}, 502
         return {'error': 'Router error: {}'.format(str(e))}, 500
 
 
@@ -126,7 +409,7 @@ def router_get():
         url = '{}/get?key={}'.format(shard_url, urllib.parse.quote(key))
         resp, code = forward_request(url, 'GET', request.headers)
         return resp, code
-    except Exception as e:
+except Exception as e:
         return {'error': 'Unable to process this request. Details: {}'.format(str(e))}, 422
 
 
@@ -213,7 +496,7 @@ def router_items():
     all_items = []
     for shard in shards:
         resp, code = forward_request('{}/items'.format(shard), 'GET')
-        if code == 200 and isinstance(resp, dict) and 'items' in resp:
+if code == 200 and isinstance(resp, dict) and 'items' in resp:
             all_items.extend(resp['items'])
     return {'items': all_items}, 200
 
@@ -259,4 +542,12 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS'
+    
+    try:
+        if getattr(g, 'pupdb_failover', False):
+            response.headers['X-PupDB-Failover'] = 'true'
+            response.headers['Access-Control-Expose-Headers'] = 'X-PupDB-Failover'
+    except Exception:
+        pass
+        
     return response
